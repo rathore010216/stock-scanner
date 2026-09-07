@@ -1,0 +1,31 @@
+name: Daily stock scan
+
+# Runs the screener after NSE close and publishes results + chart data to
+# Firebase under /stock/. Weekdays ~17:30 IST (12:00 UTC). Manual dispatch too.
+on:
+  schedule:
+    - cron: "0 12 * * 1-5"   # 12:00 UTC = 17:30 IST, Mon-Fri
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Run scan + publish
+        working-directory: backend
+        env:
+          FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
+          FIREBASE_DB_SECRET: ${{ secrets.FIREBASE_DB_SECRET }}
+        run: python publish.py

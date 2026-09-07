@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+backend/data/
+backend/payload_preview.json
+backend/charts_preview.json
+venv/
+
+# Flutter (added later)
+app/build/
+app/.dart_tool/
+app/.flutter-plugins*
+app/android/app/google-services.json
+*.keystore
+key.properties
+
+# OS
+Thumbs.db
+.DS_Store

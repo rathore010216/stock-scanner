@@ -1,0 +1,281 @@
+import 'package:flutter/material.dart';
+
+import '../models/stock_data.dart';
+import '../services/stock_service.dart';
+import 'chart_screen.dart';
+
+/// Human-friendly labels for screener keys.
+const screenerLabels = {
+  'trend': 'Uptrend',
+  'breakout_52w': '52w breakout',
+  'volume_surge': 'Volume surge',
+  'momentum': 'Momentum',
+  'rsi2': 'RSI-2 dip',
+  'bollinger_squeeze': 'Squeeze',
+  'macd_cross': 'MACD cross',
+  'cup_handle': 'Cup & handle',
+};
+
+class MatchesScreen extends StatefulWidget {
+  const MatchesScreen({super.key});
+
+  @override
+  State<MatchesScreen> createState() => _MatchesScreenState();
+}
+
+class _MatchesScreenState extends State<MatchesScreen> {
+  final _service = StockService();
+
+  bool _loading = true;
+  String? _error;
+  String? _asOf;
+  String _disclaimer = '';
+  List<String> _allScreeners = [];
+  List<StockMatch> _matches = [];
+
+  // Toggle state: which screeners are active filters.
+  final Set<String> _active = {};
+  int _minHits = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await _service.ensureSignedIn();
+      final r = await _service.fetchLatest();
+      setState(() {
+        _asOf = r.asOf;
+        _disclaimer = r.disclaimer;
+        _allScreeners = r.screeners;
+        _matches = r.matches;
+        _active
+          ..clear()
+          ..addAll(r.screeners); // all active by default
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'Could not load data. Pull to retry.\n$e';
+        _loading = false;
+      });
+    }
+  }
+
+  /// Matches filtered by active screeners + min-hits.
+  List<StockMatch> get _filtered {
+    final out = _matches.where((m) {
+      final hitsActive = m.triggered.where(_active.contains).toList();
+      return hitsActive.length >= _minHits;
+    }).toList();
+    // Sort by # of ACTIVE screeners hit, then symbol.
+    out.sort((a, b) {
+      final ah = a.triggered.where(_active.contains).length;
+      final bh = b.triggered.where(_active.contains).length;
+      if (ah != bh) return bh - ah;
+      return a.symbol.compareTo(b.symbol);
+    });
+    return out;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('NSE Swing Screener'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Reload',
+            onPressed: _load,
+          ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? _ErrorView(message: _error!, onRetry: _load)
+              : _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    final filtered = _filtered;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Row(
+            children: [
+              Text(_asOf != null ? 'As of $_asOf close' : 'No data',
+                  style: Theme.of(context).textTheme.bodySmall),
+              const Spacer(),
+              Text('${filtered.length} matches',
+                  style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
+        // Screener toggle chips.
+        SizedBox(
+          height: 44,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            children: [
+              for (final key in _allScreeners)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    label: Text(screenerLabels[key] ?? key),
+                    selected: _active.contains(key),
+                    onSelected: (sel) => setState(() {
+                      if (sel) {
+                        _active.add(key);
+                      } else {
+                        _active.remove(key);
+                      }
+                    }),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        // Min-hits selector.
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              const Text('Min screeners: '),
+              DropdownButton<int>(
+                value: _minHits,
+                items: [1, 2, 3, 4]
+                    .map((n) => DropdownMenuItem(value: n, child: Text('$n')))
+                    .toList(),
+                onChanged: (v) => setState(() => _minHits = v ?? 1),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () =>
+                    setState(() => _active..clear()..addAll(_allScreeners)),
+                child: const Text('All'),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: filtered.isEmpty
+                ? ListView(children: const [
+                    Padding(
+                      padding: EdgeInsets.all(32),
+                      child: Text(
+                        'No matches for the selected screeners.\n'
+                        'Enable more chips or lower the minimum.',
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  ])
+                : ListView.separated(
+                    itemCount: filtered.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, i) =>
+                        _MatchTile(match: filtered[i], active: _active),
+                  ),
+          ),
+        ),
+        if (_disclaimer.isNotEmpty)
+          Container(
+            width: double.infinity,
+            color: Colors.amber.shade50,
+            padding: const EdgeInsets.all(8),
+            child: Text(_disclaimer,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 11, color: Colors.brown)),
+          ),
+      ],
+    );
+  }
+}
+
+class _MatchTile extends StatelessWidget {
+  final StockMatch match;
+  final Set<String> active;
+  const _MatchTile({required this.match, required this.active});
+
+  @override
+  Widget build(BuildContext context) {
+    final activeHits =
+        match.triggered.where(active.contains).toList();
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: const Color(0xFF1565C0),
+        child: Text('${activeHits.length}',
+            style: const TextStyle(color: Colors.white)),
+      ),
+      title: Text(match.symbol,
+          style: const TextStyle(fontWeight: FontWeight.bold)),
+      subtitle: Wrap(
+        spacing: 4,
+        runSpacing: -6,
+        children: [
+          for (final t in activeHits)
+            Chip(
+              label: Text(screenerLabels[t] ?? t,
+                  style: const TextStyle(fontSize: 10)),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+            ),
+        ],
+      ),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text('₹${match.price}',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          if (match.rsi != null)
+            Text('RSI ${match.rsi}',
+                style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ChartScreen(symbol: match.symbol),
+      )),
+    );
+  }
+}
+
+class _ErrorView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _ErrorView({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off, size: 48, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      ),
+    );
+  }
+}
