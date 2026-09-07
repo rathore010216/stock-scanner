@@ -33,6 +33,8 @@ class _MatchesScreenState extends State<MatchesScreen> {
   String _disclaimer = '';
   List<String> _allScreeners = [];
   List<StockMatch> _matches = [];
+  Map<String, double> _quotes = {};
+  String? _quotesAsOf;
 
   // Toggle state: which screeners are active filters.
   final Set<String> _active = {};
@@ -50,13 +52,16 @@ class _MatchesScreenState extends State<MatchesScreen> {
       _error = null;
     });
     try {
-      await _service.ensureSignedIn();
       final r = await _service.fetchLatest();
+      final quotes = await _service.fetchQuotes();
+      final quotesAsOf = await _service.quotesAsOf();
       setState(() {
         _asOf = r.asOf;
         _disclaimer = r.disclaimer;
         _allScreeners = r.screeners;
         _matches = r.matches;
+        _quotes = quotes;
+        _quotesAsOf = quotesAsOf;
         _active
           ..clear()
           ..addAll(r.screeners); // all active by default
@@ -211,8 +216,10 @@ class _MatchesScreenState extends State<MatchesScreen> {
                 : ListView.separated(
                     itemCount: filtered.length,
                     separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, i) =>
-                        _MatchTile(match: filtered[i], active: _active),
+                    itemBuilder: (context, i) => _MatchTile(
+                        match: filtered[i],
+                        active: _active,
+                        livePrice: _quotes[filtered[i].symbol]),
                   ),
           ),
         ),
@@ -242,7 +249,11 @@ class _MatchesScreenState extends State<MatchesScreen> {
 class _MatchTile extends StatelessWidget {
   final StockMatch match;
   final Set<String> active;
-  const _MatchTile({required this.match, required this.active});
+  final double? livePrice;
+  const _MatchTile(
+      {required this.match, required this.active, this.livePrice});
+
+  double get _price => livePrice ?? match.price;
 
   @override
   Widget build(BuildContext context) {
@@ -277,7 +288,7 @@ class _MatchTile extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('₹${match.price}',
+              Text('₹${_price.toStringAsFixed(2)}',
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               if (match.rsi != null)
                 Text('RSI ${match.rsi}',
@@ -308,14 +319,14 @@ class _MatchTile extends StatelessWidget {
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, setLocal) {
           final qty = int.tryParse(qtyController.text) ?? 0;
-          final cost = qty * match.price;
+          final cost = qty * _price;
           return AlertDialog(
             title: Text('Buy ${match.symbol}'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Price (last close): ₹${match.price}'),
+                Text('Price: ₹${_price.toStringAsFixed(2)}'),
                 const SizedBox(height: 12),
                 TextField(
                   controller: qtyController,
@@ -349,10 +360,11 @@ class _MatchTile extends StatelessWidget {
     );
     if (result == null) return;
     try {
-      await PortfolioService().buy(match.symbol, result, match.price);
+      await PortfolioService().buy(match.symbol, result, _price);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Bought $result ${match.symbol} @ ₹${match.price}')));
+            content: Text('Bought $result ${match.symbol} @ '
+                '₹${_price.toStringAsFixed(2)}')));
       }
     } catch (e) {
       if (context.mounted) {

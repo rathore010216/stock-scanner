@@ -61,8 +61,21 @@ class StockService {
   }
 
   /// Latest close + previous close for a symbol (for portfolio P/L + day P/L).
-  /// Returns (last, prev) or null if unavailable.
+  /// Prefers the fresher intraday quote (/stock/quotes) if available, else
+  /// falls back to the daily chart's last two closes.
   Future<({double last, double prev})?> lastTwoCloses(String symbol) async {
+    // Try the intraday quote first.
+    final qSnap = await _db.child('stock/quotes/$symbol').get();
+    if (qSnap.exists && qSnap.value != null) {
+      final q = qSnap.value as Map;
+      final price = (q['price'] is num) ? (q['price'] as num).toDouble() : null;
+      final prev =
+          (q['prevClose'] is num) ? (q['prevClose'] as num).toDouble() : null;
+      if (price != null) {
+        return (last: price, prev: prev ?? price);
+      }
+    }
+    // Fallback: daily chart closes.
     final chart = await fetchChart(symbol);
     if (chart == null) return null;
     final closes = chart.close.whereType<double>().toList();
@@ -70,5 +83,25 @@ class StockService {
     final last = closes.last;
     final prev = closes.length >= 2 ? closes[closes.length - 2] : last;
     return (last: last, prev: prev);
+  }
+
+  /// Map of symbol -> latest quote price (fresher than EOD). Empty if none.
+  Future<Map<String, double>> fetchQuotes() async {
+    final snap = await _db.child('stock/quotes').get();
+    final out = <String, double>{};
+    if (snap.exists && snap.value is Map) {
+      (snap.value as Map).forEach((k, v) {
+        if (v is Map && v['price'] is num) {
+          out[k as String] = (v['price'] as num).toDouble();
+        }
+      });
+    }
+    return out;
+  }
+
+  /// When quotes were last refreshed (ISO string) or null.
+  Future<String?> quotesAsOf() async {
+    final snap = await _db.child('stock/quotesAsOf').get();
+    return snap.value?.toString();
   }
 }

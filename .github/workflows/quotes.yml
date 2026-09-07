@@ -1,0 +1,30 @@
+name: Intraday quote refresh
+
+# Refreshes latest prices (matched + held symbols) ~every 30 min during NSE
+# market hours (09:15-15:30 IST = 03:45-10:00 UTC), weekdays. Lightweight.
+# NOTE: GitHub cron timing is approximate and can be delayed under load.
+on:
+  schedule:
+    # Every 30 min from 03:30 to 10:30 UTC (buffer around NSE hours), Mon-Fri.
+    - cron: "0,30 3-10 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  quotes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        working-directory: backend
+        run: pip install yfinance firebase-admin
+      - name: Refresh quotes
+        working-directory: backend
+        env:
+          FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python quotes.py
