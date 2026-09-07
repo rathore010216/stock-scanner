@@ -123,26 +123,26 @@ class _MatchesScreenState extends State<MatchesScreen> {
           ),
         ),
         // Screener toggle chips.
-        SizedBox(
-          height: 44,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 4,
             children: [
               for (final key in _allScreeners)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label: Text(screenerLabels[key] ?? key),
-                    selected: _active.contains(key),
-                    onSelected: (sel) => setState(() {
-                      if (sel) {
-                        _active.add(key);
-                      } else {
-                        _active.remove(key);
-                      }
-                    }),
-                  ),
+                FilterChip(
+                  label: Text(screenerLabels[key] ?? key,
+                      style: const TextStyle(fontSize: 12)),
+                  selected: _active.contains(key),
+                  onSelected: (sel) => setState(() {
+                    if (sel) {
+                      _active.add(key);
+                    } else {
+                      _active.remove(key);
+                    }
+                  }),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
                 ),
             ],
           ),
