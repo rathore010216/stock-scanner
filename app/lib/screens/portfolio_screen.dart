@@ -93,7 +93,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             child: ListView(
               padding: const EdgeInsets.all(12),
               children: [
-                _summaryCard(totalValue, p.cash, totalPnl, totalPnlPct, dayPnl),
+                _summaryCard(totalValue, p.cash, holdingsValue, totalPnl,
+                    totalPnlPct, dayPnl),
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -234,8 +235,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     }
   }
 
-  Widget _summaryCard(double totalValue, double cash, double totalPnl,
-      double totalPnlPct, double dayPnl) {
+  Widget _summaryCard(double totalValue, double cash, double holdingsValue,
+      double totalPnl, double totalPnlPct, double dayPnl) {
     final pnlColor = totalPnl >= 0 ? Colors.green.shade700 : Colors.red.shade700;
     final dayColor = dayPnl >= 0 ? Colors.green.shade700 : Colors.red.shade700;
     return Card(
@@ -252,20 +253,28 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             Row(
               children: [
                 Expanded(
+                    child: _stat('Holdings value',
+                        _money(holdingsValue), Colors.black87)),
+                Expanded(
                     child: _stat('Cash', _money(cash), Colors.black87)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
                 Expanded(
                     child: _stat(
                         'Total P/L',
                         '${totalPnl >= 0 ? '+' : ''}${_money(totalPnl)}'
                             ' (${totalPnlPct.toStringAsFixed(2)}%)',
                         pnlColor)),
+                Expanded(
+                    child: _stat(
+                        "Day's P/L",
+                        '${dayPnl >= 0 ? '+' : ''}${_money(dayPnl)}',
+                        dayColor)),
               ],
             ),
-            const SizedBox(height: 8),
-            _stat(
-                "Day's P/L",
-                '${dayPnl >= 0 ? '+' : ''}${_money(dayPnl)}',
-                dayColor),
           ],
         ),
       ),
