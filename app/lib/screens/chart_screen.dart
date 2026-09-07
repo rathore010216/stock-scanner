@@ -17,6 +17,7 @@ class _ChartScreenState extends State<ChartScreen> {
   ChartData? _data;
   bool _loading = true;
   String? _error;
+  int _rangeDays = 63; // default ~3 months
 
   @override
   void initState() {
@@ -82,12 +83,60 @@ class _ChartScreenState extends State<ChartScreen> {
     return m == -double.infinity ? 1 : m;
   }
 
+  // Slice the last N bars from a series.
+  List<double?> _tail(List<double?> s, int n) =>
+      s.length <= n ? s : s.sublist(s.length - n);
+
+  Widget _rangeSelector() {
+    final options = <String, int>{
+      '1M': 21,
+      '3M': 63,
+      '6M': 126,
+      'Max': 100000,
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Wrap(
+        spacing: 8,
+        children: [
+          for (final e in options.entries)
+            ChoiceChip(
+              label: Text(e.key),
+              selected: _rangeDays == e.value,
+              onSelected: (_) => setState(() => _rangeDays = e.value),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildChart() {
-    final d = _data!;
+    final full = _data!;
+    final r = _rangeDays;
+    // Sliced view for the selected range.
+    final d = ChartData(
+      dates: full.dates.length <= r
+          ? full.dates
+          : full.dates.sublist(full.dates.length - r),
+      close: _tail(full.close, r),
+      ema50: _tail(full.ema50, r),
+      ema200: _tail(full.ema200, r),
+      bbUpper: _tail(full.bbUpper, r),
+      bbLower: _tail(full.bbLower, r),
+      macd: _tail(full.macd, r),
+      macdSignal: _tail(full.macdSignal, r),
+      macdHist: _tail(full.macdHist, r),
+      rsi: _tail(full.rsi, r),
+      volAvg20: _tail(full.volAvg20, r),
+      volume: _tail(full.volume, r),
+    );
     final n = d.close.length;
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        _rangeSelector(),
         _panelTitle('Price · EMA50 · EMA200 · Bollinger'),
         _lineChart(
           height: 260,
