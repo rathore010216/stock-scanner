@@ -3,3 +3,4 @@ numpy
 yfinance
 pyarrow
 requests
+google-auth

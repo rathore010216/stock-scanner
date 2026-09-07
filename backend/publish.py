@@ -107,7 +107,7 @@ def build_payload():
         as_of = str(next(iter(ind.values())).index[-1].date())
     summary = {
         "as_of": as_of,
-        "generated_at": dt.datetime.utcnow().isoformat() + "Z",
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "disclaimer": DISCLAIMER,
         "screeners": list(S.PER_STOCK.keys()) + ["momentum"],
         "matches": matches,
@@ -115,28 +115,58 @@ def build_payload():
     return summary, charts
 
 
+def _access_token_from_service_account() -> str | None:
+    """Mint an OAuth access token from a service-account JSON (modern, reliable
+    auth for RTDB REST writes). Returns None if no service account is provided.
+    """
+    sa_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT", "")
+    if not sa_json:
+        return None
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import Request as GRequest
+    info = json.loads(sa_json)
+    creds = service_account.Credentials.from_service_account_info(
+        info,
+        scopes=[
+            "https://www.googleapis.com/auth/firebase.database",
+            "https://www.googleapis.com/auth/userinfo.email",
+        ],
+    )
+    creds.refresh(GRequest())
+    return creds.token
+
+
 def publish(summary: dict, charts: dict):
     db_url = os.environ.get("FIREBASE_DB_URL", "").rstrip("/")
-    secret = os.environ.get("FIREBASE_DB_SECRET", "")
     if not db_url:
         raise SystemExit("FIREBASE_DB_URL not set")
-    auth = f"?auth={secret}" if secret else ""
+
+    # Prefer a service-account access token (modern). Fall back to a legacy
+    # database secret via ?auth= if that's what's provided.
+    token = _access_token_from_service_account()
+    headers = {"Content-Type": "application/json"}
+    auth_qs = ""
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    else:
+        secret = os.environ.get("FIREBASE_DB_SECRET", "")
+        if not secret:
+            raise SystemExit(
+                "No auth: set FIREBASE_SERVICE_ACCOUNT (recommended) or "
+                "FIREBASE_DB_SECRET.")
+        auth_qs = f"?auth={secret}"
 
     def put(path, obj):
-        url = db_url + path + auth
-        r = requests.put(url, data=json.dumps(obj),
-                         headers={"Content-Type": "application/json"},
+        url = db_url + path + auth_qs
+        r = requests.put(url, data=json.dumps(obj), headers=headers,
                          timeout=90)
         if r.status_code >= 300:
             raise SystemExit(f"PUT {path} failed: {r.status_code} {r.text[:300]}")
         return r.status_code
 
     as_of = summary["as_of"] or "unknown"
-    # Lightweight summary (fast app load).
     put("/stock/latest.json", summary)
     put(f"/stock/daily/{as_of}.json", summary)
-    # Heavy chart data keyed by symbol, fetched on demand when a stock is tapped.
-    # Replace the whole charts node in one PUT (keeps it in sync with latest).
     put("/stock/charts.json", charts)
     print(f"Published summary ({len(summary['matches'])} matches) + "
           f"{len(charts)} charts for {as_of}")
