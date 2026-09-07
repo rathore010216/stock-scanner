@@ -55,8 +55,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               PopupMenuItem(value: 'reset', child: Text('Reset portfolio')),
               PopupMenuItem(value: 'signout', child: Text('Sign out')),
             ],
-          ),
-        ],
+          ),        ],
       ),
       body: StreamBuilder<Portfolio>(
         stream: _portfolio.stream(),
@@ -130,7 +129,109 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
           );
         },
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showManualBuyDialog,
+        icon: const Icon(Icons.add),
+        label: const Text('Buy stock'),
+      ),
     );
+  }
+
+  Future<void> _showManualBuyDialog() async {
+    final symbolController = TextEditingController();
+    final priceController = TextEditingController();
+    final qtyController = TextEditingController(text: '1');
+    final result = await showDialog<({String symbol, int qty, double price})>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setLocal) {
+          final qty = int.tryParse(qtyController.text) ?? 0;
+          final price = double.tryParse(priceController.text) ?? 0;
+          final cost = qty * price;
+          return AlertDialog(
+            title: const Text('Buy any stock'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: symbolController,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(
+                      labelText: 'NSE symbol (e.g. TATASTEEL)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setLocal(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: priceController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Buy price (₹)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setLocal(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: qtyController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Quantity (whole shares)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setLocal(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Estimated cost: ₹${cost.toStringAsFixed(2)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'You enter the symbol and price yourself. Paper trade — '
+                    'not real money, not linked to a live feed.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel')),
+              FilledButton(
+                onPressed: (symbolController.text.trim().isNotEmpty &&
+                        qty > 0 &&
+                        price > 0)
+                    ? () => Navigator.pop(ctx, (
+                          symbol: symbolController.text.trim().toUpperCase(),
+                          qty: qty,
+                          price: price,
+                        ))
+                    : null,
+                child: const Text('Buy'),
+              ),
+            ],
+          );
+        });
+      },
+    );
+    if (result == null) return;
+    try {
+      await _portfolio.buy(result.symbol, result.qty, result.price);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Bought ${result.qty} ${result.symbol} @ '
+                '₹${result.price.toStringAsFixed(2)}')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(e is StateError ? e.message : 'Buy failed')));
+      }
+    }
   }
 
   Widget _summaryCard(double totalValue, double cash, double totalPnl,
