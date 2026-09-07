@@ -59,4 +59,16 @@ class StockService {
     if (!snap.exists || snap.value == null) return null;
     return ChartData.fromMap(snap.value as Map);
   }
+
+  /// Latest close + previous close for a symbol (for portfolio P/L + day P/L).
+  /// Returns (last, prev) or null if unavailable.
+  Future<({double last, double prev})?> lastTwoCloses(String symbol) async {
+    final chart = await fetchChart(symbol);
+    if (chart == null) return null;
+    final closes = chart.close.whereType<double>().toList();
+    if (closes.isEmpty) return null;
+    final last = closes.last;
+    final prev = closes.length >= 2 ? closes[closes.length - 2] : last;
+    return (last: last, prev: prev);
+  }
 }

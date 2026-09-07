@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/stock_data.dart';
 import '../services/stock_service.dart';
+import '../services/portfolio_service.dart';
 import 'chart_screen.dart';
 
 /// Human-friendly labels for screener keys.
@@ -269,21 +270,96 @@ class _MatchTile extends StatelessWidget {
             ),
         ],
       ),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text('₹${match.price}',
-              style: const TextStyle(fontWeight: FontWeight.w600)),
-          if (match.rsi != null)
-            Text('RSI ${match.rsi}',
-                style: Theme.of(context).textTheme.bodySmall),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text('₹${match.price}',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              if (match.rsi != null)
+                Text('RSI ${match.rsi}',
+                    style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+          const SizedBox(width: 6),
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              minimumSize: const Size(0, 34),
+            ),
+            onPressed: () => _showBuyDialog(context),
+            child: const Text('Buy'),
+          ),
         ],
       ),
       onTap: () => Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => ChartScreen(symbol: match.symbol),
       )),
     );
+  }
+
+  Future<void> _showBuyDialog(BuildContext context) async {
+    final qtyController = TextEditingController(text: '1');
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setLocal) {
+          final qty = int.tryParse(qtyController.text) ?? 0;
+          final cost = qty * match.price;
+          return AlertDialog(
+            title: Text('Buy ${match.symbol}'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Price (last close): ₹${match.price}'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: qtyController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Quantity (whole shares)',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setLocal(() {}),
+                ),
+                const SizedBox(height: 8),
+                Text('Estimated cost: ₹${cost.toStringAsFixed(2)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                const Text('Paper trade at last close. Not real money.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey)),
+              ],
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel')),
+              FilledButton(
+                onPressed: qty > 0 ? () => Navigator.pop(ctx, qty) : null,
+                child: const Text('Buy'),
+              ),
+            ],
+          );
+        });
+      },
+    );
+    if (result == null) return;
+    try {
+      await PortfolioService().buy(match.symbol, result, match.price);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Bought $result ${match.symbol} @ ₹${match.price}')));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(e is StateError ? e.message : 'Buy failed')));
+      }
+    }
   }
 }
 
