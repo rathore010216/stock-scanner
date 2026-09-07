@@ -96,6 +96,29 @@ class _MatchesScreenState extends State<MatchesScreen> {
             tooltip: 'Reload',
             onPressed: _load,
           ),
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'About',
+            onPressed: () => showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('About'),
+                content: const Text(
+                  'NSE Swing Screener\n\n'
+                  'Created and owned by Pawan.\n'
+                  'Contact: pawan88@gmail.com\n\n'
+                  'This app is a research/screening tool only and is NOT '
+                  'investment advice. Do your own analysis before trading.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
       body: _loading
@@ -201,6 +224,15 @@ class _MatchesScreenState extends State<MatchesScreen> {
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 11, color: Colors.brown)),
           ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: const Text(
+            'Created & owned by Pawan · pawan88@gmail.com',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 10, color: Colors.grey),
+          ),
+        ),
       ],
     );
   }
