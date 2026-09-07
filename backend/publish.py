@@ -28,7 +28,6 @@ import os
 import sys
 
 import pandas as pd
-import requests
 
 import config as C
 from data_fetcher import fetch_all
@@ -115,61 +114,31 @@ def build_payload():
     return summary, charts
 
 
-def _access_token_from_service_account() -> str | None:
-    """Mint an OAuth access token from a service-account JSON (modern, reliable
-    auth for RTDB REST writes). Returns None if no service account is provided.
-    """
-    sa_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT", "")
-    if not sa_json:
-        return None
-    from google.oauth2 import service_account
-    from google.auth.transport.requests import Request as GRequest
-    info = json.loads(sa_json)
-    creds = service_account.Credentials.from_service_account_info(
-        info,
-        scopes=[
-            "https://www.googleapis.com/auth/firebase.database",
-            "https://www.googleapis.com/auth/userinfo.email",
-        ],
-    )
-    creds.refresh(GRequest())
-    return creds.token
-
-
 def publish(summary: dict, charts: dict):
+    """Write to RTDB using the firebase-admin SDK (official server method).
+
+    Auth via the service-account key in FIREBASE_SERVICE_ACCOUNT. The SDK
+    handles tokens/scopes correctly, avoiding REST 401 pitfalls. Admin SDK
+    writes bypass security rules entirely (privileged), so ".write": false is
+    fine for clients.
+    """
     db_url = os.environ.get("FIREBASE_DB_URL", "").rstrip("/")
+    sa_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT", "")
     if not db_url:
         raise SystemExit("FIREBASE_DB_URL not set")
+    if not sa_json:
+        raise SystemExit("FIREBASE_SERVICE_ACCOUNT not set")
 
-    # Prefer a service-account access token (modern). Fall back to a legacy
-    # database secret via ?auth= if that's what's provided.
-    token = _access_token_from_service_account()
-    headers = {"Content-Type": "application/json"}
-    auth_qs = ""
-    if token:
-        # RTDB REST accepts an OAuth2 access token via the access_token query
-        # param (more reliable than the Authorization header for this API).
-        auth_qs = f"?access_token={token}"
-    else:
-        secret = os.environ.get("FIREBASE_DB_SECRET", "")
-        if not secret:
-            raise SystemExit(
-                "No auth: set FIREBASE_SERVICE_ACCOUNT (recommended) or "
-                "FIREBASE_DB_SECRET.")
-        auth_qs = f"?auth={secret}"
+    import firebase_admin
+    from firebase_admin import credentials, db as admin_db
 
-    def put(path, obj):
-        url = db_url + path + auth_qs
-        r = requests.put(url, data=json.dumps(obj), headers=headers,
-                         timeout=90)
-        if r.status_code >= 300:
-            raise SystemExit(f"PUT {path} failed: {r.status_code} {r.text[:300]}")
-        return r.status_code
+    cred = credentials.Certificate(json.loads(sa_json))
+    firebase_admin.initialize_app(cred, {"databaseURL": db_url})
 
     as_of = summary["as_of"] or "unknown"
-    put("/stock/latest.json", summary)
-    put(f"/stock/daily/{as_of}.json", summary)
-    put("/stock/charts.json", charts)
+    admin_db.reference("stock/latest").set(summary)
+    admin_db.reference(f"stock/daily/{as_of}").set(summary)
+    admin_db.reference("stock/charts").set(charts)
     print(f"Published summary ({len(summary['matches'])} matches) + "
           f"{len(charts)} charts for {as_of}")
 
