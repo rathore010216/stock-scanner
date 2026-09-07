@@ -147,7 +147,9 @@ def publish(summary: dict, charts: dict):
     headers = {"Content-Type": "application/json"}
     auth_qs = ""
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        # RTDB REST accepts an OAuth2 access token via the access_token query
+        # param (more reliable than the Authorization header for this API).
+        auth_qs = f"?access_token={token}"
     else:
         secret = os.environ.get("FIREBASE_DB_SECRET", "")
         if not secret:
