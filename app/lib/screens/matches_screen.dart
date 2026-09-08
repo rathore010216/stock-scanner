@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/stock_data.dart';
@@ -53,9 +54,21 @@ class _MatchesScreenState extends State<MatchesScreen> {
       _error = null;
     });
     try {
-      final r = await _service.fetchLatest();
-      final quotes = await _service.fetchQuotes();
-      final quotesAsOf = await _service.quotesAsOf();
+      final r = await _service.fetchLatest().timeout(
+          const Duration(seconds: 20));
+      // Quotes are best-effort; don't let them block or fail the load.
+      Map<String, double> quotes = {};
+      String? quotesAsOf;
+      try {
+        quotes = await _service
+            .fetchQuotes()
+            .timeout(const Duration(seconds: 15));
+        quotesAsOf = await _service
+            .quotesAsOf()
+            .timeout(const Duration(seconds: 10));
+      } catch (_) {
+        // ignore quote failures; show matches without live prices
+      }
       setState(() {
         _asOf = r.asOf;
         _disclaimer = r.disclaimer;
@@ -71,7 +84,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = 'Could not load data. Pull to retry.\n$e';
+        _error = 'Could not load data. Tap Retry.\n$e';
         _loading = false;
       });
     }
