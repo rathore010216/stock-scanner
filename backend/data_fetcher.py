@@ -10,7 +10,7 @@ import time
 import pandas as pd
 import yfinance as yf
 
-from symbols import NIFTY_500
+from symbols import NIFTY_500, get_universe
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CACHE_FILE = os.path.join(DATA_DIR, "ohlcv.parquet")
@@ -35,7 +35,7 @@ def fetch_all(period: str = "2y",
     Caches the combined result to parquet so repeat runs are instant/offline.
     """
     os.makedirs(DATA_DIR, exist_ok=True)
-    symbols = symbols or NIFTY_500
+    symbols = symbols or get_universe()
     cache = _cache_path(period)
 
     if use_cache and os.path.exists(cache):

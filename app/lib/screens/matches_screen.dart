@@ -39,11 +39,12 @@ class _MatchesScreenState extends State<MatchesScreen> {
   // Toggle state: which screeners are active filters.
   final Set<String> _active = {};
   int _minHits = 1;
+  bool _loaded = false; // whether the user has loaded today's picks yet
 
   @override
   void initState() {
     super.initState();
-    _load();
+    // Do NOT auto-fetch on open (keeps reads lean). User taps "Load".
   }
 
   Future<void> _load() async {
@@ -66,6 +67,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
           ..clear()
           ..addAll(r.screeners); // all active by default
         _loading = false;
+        _loaded = true;
       });
     } catch (e) {
       setState(() {
@@ -131,7 +133,34 @@ class _MatchesScreenState extends State<MatchesScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? _ErrorView(message: _error!, onRetry: _load)
-              : _buildBody(),
+              : !_loaded
+                  ? _loadPrompt()
+                  : _buildBody(),
+    );
+  }
+
+  Widget _loadPrompt() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.query_stats, size: 56, color: Color(0xFF1565C0)),
+            const SizedBox(height: 16),
+            const Text(
+              "Today's screener picks are ready.\nTap to load them.",
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.download),
+              label: const Text('Load picks'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

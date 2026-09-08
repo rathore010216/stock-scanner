@@ -3,3 +3,4 @@ numpy
 yfinance
 pyarrow
 firebase-admin
+requests

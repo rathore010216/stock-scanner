@@ -36,7 +36,7 @@ from scoring import passes_universe, DISCLAIMER
 import screeners as S
 
 CHART_DAYS = 120
-MAX_MATCHES = 120  # cap payload size
+MAX_MATCHES = 200  # cap payload size
 
 
 def _series(d, col, ndigits=2):

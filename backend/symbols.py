@@ -85,3 +85,33 @@ NIFTY_500 = [
 # De-duplicate while preserving order.
 _seen = set()
 NIFTY_500 = [s for s in NIFTY_500 if not (s in _seen or _seen.add(s))]
+
+
+def get_universe() -> list[str]:
+    """Return the scan universe. Tries NSE's public Nifty 500 CSV so the list
+    stays current; falls back to the bundled curated list on any failure.
+    """
+    url = ("https://nsearchives.nseindia.com/content/indices/"
+           "ind_nifty500list.csv")
+    try:
+        import csv
+        import io
+        import requests
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Accept": "text/csv,*/*",
+        }
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+        reader = csv.DictReader(io.StringIO(r.text))
+        syms = [row["Symbol"].strip().upper()
+                for row in reader if row.get("Symbol")]
+        # Sanity: NSE Nifty 500 should have ~500 names.
+        if len(syms) >= 400:
+            print(f"Loaded {len(syms)} symbols from NSE Nifty 500 CSV")
+            return syms
+        print(f"NSE CSV returned only {len(syms)} symbols; using fallback")
+    except Exception as e:
+        print(f"NSE CSV fetch failed ({e}); using bundled list")
+    return NIFTY_500
+
