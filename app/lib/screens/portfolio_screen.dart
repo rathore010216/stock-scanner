@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/portfolio_service.dart';
 import '../services/stock_service.dart';
+import 'chart_screen.dart';
 
 class PortfolioScreen extends StatefulWidget {
   const PortfolioScreen({super.key});
@@ -306,17 +307,36 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text('${h.qty} @ avg ₹${h.avgPrice.toStringAsFixed(2)}  ·  '
             'now ₹${last.toStringAsFixed(2)}'),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text('${pnl >= 0 ? '+' : ''}${_money(pnl)}',
-                style: TextStyle(color: color, fontWeight: FontWeight.w600)),
-            Text('${pnlPct.toStringAsFixed(2)}%',
-                style: TextStyle(color: color, fontSize: 12)),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text('${pnl >= 0 ? '+' : ''}${_money(pnl)}',
+                    style:
+                        TextStyle(color: color, fontWeight: FontWeight.w600)),
+                Text('${pnlPct.toStringAsFixed(2)}%',
+                    style: TextStyle(color: color, fontSize: 12)),
+              ],
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                minimumSize: const Size(0, 34),
+                foregroundColor: Colors.red,
+              ),
+              onPressed: () => _showSellDialog(h, last),
+              child: const Text('Sell'),
+            ),
           ],
         ),
-        onTap: () => _showSellDialog(h, last),
+        // Tap the row to view the stock's chart/data.
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => ChartScreen(symbol: h.symbol),
+        )),
       ),
     );
   }
