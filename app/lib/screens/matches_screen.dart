@@ -28,7 +28,7 @@ class MatchesScreen extends StatefulWidget {
 class _MatchesScreenState extends State<MatchesScreen> {
   final _service = StockService();
 
-  bool _loading = true;
+  bool _loading = false;
   String? _error;
   String? _asOf;
   String _disclaimer = '';
