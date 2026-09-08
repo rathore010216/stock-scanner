@@ -8,11 +8,17 @@ class Holding {
   final double avgPrice;
   final int firstBuyMs;
 
+  /// Optional paper stop-loss / target price levels. Null = not set.
+  final double? stopLoss;
+  final double? target;
+
   const Holding({
     required this.symbol,
     required this.qty,
     required this.avgPrice,
     required this.firstBuyMs,
+    this.stopLoss,
+    this.target,
   });
 
   double get invested => qty * avgPrice;
@@ -22,7 +28,16 @@ class Holding {
         qty: (m['qty'] ?? 0) as int,
         avgPrice: (m['avgPrice'] is num) ? (m['avgPrice'] as num).toDouble() : 0,
         firstBuyMs: (m['firstBuyMs'] ?? 0) as int,
+        stopLoss:
+            (m['stopLoss'] is num) ? (m['stopLoss'] as num).toDouble() : null,
+        target: (m['target'] is num) ? (m['target'] as num).toDouble() : null,
       );
+
+  /// True when a valid current price has crossed the stop-loss (<=).
+  bool stopHit(double price) => stopLoss != null && price <= stopLoss!;
+
+  /// True when a valid current price has reached the target (>=).
+  bool targetHit(double price) => target != null && price >= target!;
 }
 
 /// Snapshot of the portfolio.
@@ -105,12 +120,17 @@ class PortfolioService {
     int newQty = qty;
     double newAvg = price;
     int firstBuy = DateTime.now().millisecondsSinceEpoch;
+    // Preserve any previously set stop-loss / target when averaging up.
+    Object? keepStop;
+    Object? keepTarget;
     if (existing != null && (existing['qty'] ?? 0) > 0) {
       final eq = (existing['qty'] as num).toInt();
       final ep = (existing['avgPrice'] as num).toDouble();
       newQty = eq + qty;
       newAvg = (eq * ep + qty * price) / newQty;
       firstBuy = (existing['firstBuyMs'] ?? firstBuy) as int;
+      keepStop = existing['stopLoss'];
+      keepTarget = existing['target'];
     }
 
     await _ref.update({
@@ -119,7 +139,23 @@ class PortfolioService {
         'qty': newQty,
         'avgPrice': newAvg,
         'firstBuyMs': firstBuy,
+        if (keepStop != null) 'stopLoss': keepStop,
+        if (keepTarget != null) 'target': keepTarget,
       },
+    });
+  }
+
+  /// Set or clear the paper stop-loss / target for a held [symbol].
+  /// Pass null to clear a level. Throws if the symbol is not held.
+  Future<void> setLevels(
+      String symbol, double? stopLoss, double? target) async {
+    final snap = await _ref.child('holdings/$symbol').get();
+    if (!snap.exists || ((snap.value as Map)['qty'] ?? 0) <= 0) {
+      throw StateError('You do not hold $symbol');
+    }
+    await _ref.update({
+      'holdings/$symbol/stopLoss': stopLoss,
+      'holdings/$symbol/target': target,
     });
   }
 

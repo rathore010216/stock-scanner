@@ -301,44 +301,215 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         ? (last - h.avgPrice) / h.avgPrice * 100
         : 0.0;
     final color = pnl >= 0 ? Colors.green.shade700 : Colors.red.shade700;
+
+    // Stop-loss / target status against the current price.
+    final hasPrice = px != null;
+    final stopHit = hasPrice && h.stopHit(last);
+    final targetHit = hasPrice && h.targetHit(last);
+
     return Card(
-      child: ListTile(
-        title: Text(h.symbol,
-            style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text('${h.qty} @ avg ₹${h.avgPrice.toStringAsFixed(2)}  ·  '
-            'now ₹${last.toStringAsFixed(2)}'),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
+      child: Column(
+        children: [
+          ListTile(
+            title: Text(h.symbol,
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(
+                '${h.qty} @ avg ₹${h.avgPrice.toStringAsFixed(2)}  ·  '
+                'now ₹${last.toStringAsFixed(2)}'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text('${pnl >= 0 ? '+' : ''}${_money(pnl)}',
-                    style:
-                        TextStyle(color: color, fontWeight: FontWeight.w600)),
-                Text('${pnlPct.toStringAsFixed(2)}%',
-                    style: TextStyle(color: color, fontSize: 12)),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text('${pnl >= 0 ? '+' : ''}${_money(pnl)}',
+                        style: TextStyle(
+                            color: color, fontWeight: FontWeight.w600)),
+                    Text('${pnlPct.toStringAsFixed(2)}%',
+                        style: TextStyle(color: color, fontSize: 12)),
+                  ],
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    minimumSize: const Size(0, 34),
+                    foregroundColor: Colors.red,
+                  ),
+                  onPressed: () => _showSellDialog(h, last),
+                  child: const Text('Sell'),
+                ),
               ],
             ),
-            const SizedBox(width: 8),
-            OutlinedButton(
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                minimumSize: const Size(0, 34),
-                foregroundColor: Colors.red,
-              ),
-              onPressed: () => _showSellDialog(h, last),
-              child: const Text('Sell'),
+            // Tap the row to view the stock's chart/data.
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => ChartScreen(symbol: h.symbol),
+            )),
+          ),
+          // SL/Target badges + set button.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+            child: Row(
+              children: [
+                if (h.stopLoss != null)
+                  _levelBadge(
+                    'SL ₹${h.stopLoss!.toStringAsFixed(2)}',
+                    stopHit ? Colors.red : Colors.red.shade300,
+                    filled: stopHit,
+                  ),
+                if (h.stopLoss != null && h.target != null)
+                  const SizedBox(width: 6),
+                if (h.target != null)
+                  _levelBadge(
+                    'TGT ₹${h.target!.toStringAsFixed(2)}',
+                    targetHit ? Colors.green : Colors.green.shade400,
+                    filled: targetHit,
+                  ),
+                if (stopHit || targetHit) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    stopHit ? 'Stop hit' : 'Target hit',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: stopHit
+                            ? Colors.red.shade700
+                            : Colors.green.shade700),
+                  ),
+                ],
+                const Spacer(),
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 30),
+                  ),
+                  icon: const Icon(Icons.tune, size: 16),
+                  label: Text(
+                      (h.stopLoss == null && h.target == null)
+                          ? 'Set SL/Target'
+                          : 'Edit SL/Target',
+                      style: const TextStyle(fontSize: 12)),
+                  onPressed: () => _showLevelsDialog(h),
+                ),
+              ],
             ),
-          ],
-        ),
-        // Tap the row to view the stock's chart/data.
-        onTap: () => Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => ChartScreen(symbol: h.symbol),
-        )),
+          ),
+        ],
       ),
     );
+  }
+
+  Widget _levelBadge(String text, Color color, {bool filled = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: filled ? color : color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: filled ? Colors.white : color,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showLevelsDialog(Holding h) async {
+    final stopController = TextEditingController(
+        text: h.stopLoss != null ? h.stopLoss!.toStringAsFixed(2) : '');
+    final targetController = TextEditingController(
+        text: h.target != null ? h.target!.toStringAsFixed(2) : '');
+    final result = await showDialog<({double? stop, double? target})>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setLocal) {
+          final stop = double.tryParse(stopController.text.trim());
+          final target = double.tryParse(targetController.text.trim());
+          // Validation: SL should be below avg, target above (soft warnings).
+          String? warn;
+          if (stop != null && target != null && stop >= target) {
+            warn = 'Stop-loss should be below the target.';
+          }
+          return AlertDialog(
+            title: Text('SL / Target · ${h.symbol}'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Avg buy ₹${h.avgPrice.toStringAsFixed(2)}',
+                      style: const TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: stopController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Stop-loss price (₹)',
+                      hintText: 'leave blank to clear',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setLocal(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: targetController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Target price (₹)',
+                      hintText: 'leave blank to clear',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setLocal(() {}),
+                  ),
+                  if (warn != null) ...[
+                    const SizedBox(height: 8),
+                    Text(warn,
+                        style: const TextStyle(
+                            color: Colors.orange, fontSize: 12)),
+                  ],
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Paper alerts only — the app flags when the price crosses '
+                    'a level during market-hours refresh. It does not auto-sell.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () => Navigator.pop(
+                    ctx, (stop: stop, target: target)),
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        });
+      },
+    );
+    if (result == null) return;
+    try {
+      await _portfolio.setLevels(h.symbol, result.stop, result.target);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Updated SL/Target for ${h.symbol}')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(e is StateError ? e.message : 'Update failed')));
+      }
+    }
   }
 
   Future<void> _showSellDialog(Holding h, double price) async {
