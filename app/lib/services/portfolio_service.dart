@@ -12,6 +12,9 @@ class Holding {
   final double? stopLoss;
   final double? target;
 
+  /// Optional free-text note for research.
+  final String? note;
+
   const Holding({
     required this.symbol,
     required this.qty,
@@ -19,6 +22,7 @@ class Holding {
     required this.firstBuyMs,
     this.stopLoss,
     this.target,
+    this.note,
   });
 
   double get invested => qty * avgPrice;
@@ -31,6 +35,9 @@ class Holding {
         stopLoss:
             (m['stopLoss'] is num) ? (m['stopLoss'] as num).toDouble() : null,
         target: (m['target'] is num) ? (m['target'] as num).toDouble() : null,
+        note: (m['note'] is String && (m['note'] as String).trim().isNotEmpty)
+            ? m['note'] as String
+            : null,
       );
 
   /// True when a valid current price has crossed the stop-loss (<=).
@@ -38,6 +45,45 @@ class Holding {
 
   /// True when a valid current price has reached the target (>=).
   bool targetHit(double price) => target != null && price >= target!;
+}
+
+/// One recorded buy or sell in the trade log.
+class Trade {
+  final String symbol;
+  final bool isBuy;
+  final int qty;
+  final double price;
+  final double? realizedPnl; // set on sells only
+  final int ms;
+
+  const Trade({
+    required this.symbol,
+    required this.isBuy,
+    required this.qty,
+    required this.price,
+    required this.ms,
+    this.realizedPnl,
+  });
+
+  factory Trade.fromMap(Map m) => Trade(
+        symbol: (m['symbol'] ?? '').toString(),
+        isBuy: (m['side'] ?? 'buy') == 'buy',
+        qty: (m['qty'] ?? 0) as int,
+        price: (m['price'] is num) ? (m['price'] as num).toDouble() : 0,
+        realizedPnl: (m['realizedPnl'] is num)
+            ? (m['realizedPnl'] as num).toDouble()
+            : null,
+        ms: (m['ms'] ?? 0) as int,
+      );
+
+  DateTime get time => DateTime.fromMillisecondsSinceEpoch(ms);
+}
+
+/// One point on the portfolio equity curve (daily total value snapshot).
+class EquityPoint {
+  final String date; // yyyy-MM-dd
+  final double value;
+  const EquityPoint(this.date, this.value);
 }
 
 /// Snapshot of the portfolio.
@@ -143,6 +189,15 @@ class PortfolioService {
         if (keepTarget != null) 'target': keepTarget,
       },
     });
+
+    // Log the trade.
+    await _ref.child('trades').push().set({
+      'symbol': symbol,
+      'side': 'buy',
+      'qty': qty,
+      'price': price,
+      'ms': DateTime.now().millisecondsSinceEpoch,
+    });
   }
 
   /// Set or clear the paper stop-loss / target for a held [symbol].
@@ -190,6 +245,100 @@ class PortfolioService {
       updates['holdings/$symbol/qty'] = eq - qty; // partial
     }
     await _ref.update(updates);
+
+    // Log the trade with realized P/L.
+    await _ref.child('trades').push().set({
+      'symbol': symbol,
+      'side': 'sell',
+      'qty': qty,
+      'price': price,
+      'realizedPnl': realized,
+      'ms': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Trade log
+  // ---------------------------------------------------------------------------
+
+  /// Stream of all trades, newest first.
+  Stream<List<Trade>> tradesStream() {
+    return _ref.child('trades').onValue.map((event) {
+      final val = event.snapshot.value;
+      final out = <Trade>[];
+      if (val is Map) {
+        val.forEach((_, v) {
+          if (v is Map) out.add(Trade.fromMap(v));
+        });
+      }
+      out.sort((a, b) => b.ms.compareTo(a.ms)); // newest first
+      return out;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Notes
+  // ---------------------------------------------------------------------------
+
+  /// Set or clear a free-text note on a held symbol. Empty string clears it.
+  Future<void> setNote(String symbol, String note) async {
+    final trimmed = note.trim();
+    await _ref.child('holdings/$symbol/note').set(trimmed.isEmpty ? null : trimmed);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Watchlist  (/portfolios/{uid}/watchlist/{symbol} = addedMs)
+  // ---------------------------------------------------------------------------
+
+  Stream<List<String>> watchlistStream() {
+    return _ref.child('watchlist').onValue.map((event) {
+      final val = event.snapshot.value;
+      final out = <String>[];
+      if (val is Map) {
+        val.forEach((k, _) => out.add(k as String));
+      }
+      out.sort();
+      return out;
+    });
+  }
+
+  Future<void> addToWatchlist(String symbol) async {
+    final s = symbol.trim().toUpperCase();
+    if (s.isEmpty) throw StateError('Enter a symbol');
+    await _ref
+        .child('watchlist/$s')
+        .set(DateTime.now().millisecondsSinceEpoch);
+  }
+
+  Future<void> removeFromWatchlist(String symbol) async {
+    await _ref.child('watchlist/$symbol').remove();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Equity history  (/portfolios/{uid}/history/{yyyy-MM-dd} = totalValue)
+  // ---------------------------------------------------------------------------
+
+  /// Store today's total portfolio value (idempotent — overwrites today's key).
+  Future<void> snapshotValue(double totalValue) async {
+    final now = DateTime.now();
+    final key = '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+    await _ref.child('history/$key').set(totalValue);
+  }
+
+  Stream<List<EquityPoint>> historyStream() {
+    return _ref.child('history').onValue.map((event) {
+      final val = event.snapshot.value;
+      final out = <EquityPoint>[];
+      if (val is Map) {
+        val.forEach((k, v) {
+          if (v is num) out.add(EquityPoint(k as String, v.toDouble()));
+        });
+      }
+      out.sort((a, b) => a.date.compareTo(b.date)); // oldest first
+      return out;
+    });
   }
 
   /// Reset the portfolio back to starting capital.
