@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/portfolio_service.dart';
 import '../services/stock_service.dart';
+import '../services/notification_service.dart';
 import 'chart_screen.dart';
 import 'trade_log_screen.dart';
 import 'performance_screen.dart';
@@ -24,6 +25,12 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   bool _pricesLoading = false;
   bool _snapshotDone = false;
 
+  // De-dup for SL/target notifications: tracks symbols currently "in" a hit
+  // zone so we notify on the crossing, not on every refresh. Cleared when the
+  // price moves back out of the zone.
+  final Set<String> _notifiedStop = {};
+  final Set<String> _notifiedTarget = {};
+
   Future<void> _loadPrices(List<Holding> holdings) async {
     setState(() => _pricesLoading = true);
     for (final h in holdings) {
@@ -33,6 +40,48 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
       }
     }
     if (mounted) setState(() => _pricesLoading = false);
+    _checkAlerts(holdings);
+  }
+
+  /// Fire a local notification when a holding first crosses its SL/target.
+  Future<void> _checkAlerts(List<Holding> holdings) async {
+    for (final h in holdings) {
+      final px = _prices[h.symbol];
+      if (px == null) continue;
+      final price = px.last;
+
+      // Stop-loss.
+      if (h.stopLoss != null && price <= h.stopLoss!) {
+        if (!_notifiedStop.contains(h.symbol)) {
+          _notifiedStop.add(h.symbol);
+          await NotificationService.instance.showLevelHit(
+            id: h.symbol.hashCode & 0x7fffffff,
+            symbol: h.symbol,
+            isStop: true,
+            price: price,
+            level: h.stopLoss!,
+          );
+        }
+      } else {
+        _notifiedStop.remove(h.symbol); // out of zone → allow re-notify later
+      }
+
+      // Target.
+      if (h.target != null && price >= h.target!) {
+        if (!_notifiedTarget.contains(h.symbol)) {
+          _notifiedTarget.add(h.symbol);
+          await NotificationService.instance.showLevelHit(
+            id: (h.symbol.hashCode & 0x7fffffff) ^ 0x55555555,
+            symbol: h.symbol,
+            isStop: false,
+            price: price,
+            level: h.target!,
+          );
+        }
+      } else {
+        _notifiedTarget.remove(h.symbol);
+      }
+    }
   }
 
   String _money(double v) => '₹${v.toStringAsFixed(2)}';
@@ -647,11 +696,12 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                   Text(
                     percentMode
                         ? 'Percent is measured off your avg buy price — '
-                            'SL below, target above. Paper alerts only; '
-                            'no auto-sell.'
-                        : 'Paper alerts only — the app flags when the price '
-                            'crosses a level during market-hours refresh. '
-                            'It does not auto-sell.',
+                            'SL below, target above. You get a notification '
+                            'when a level is crossed while the app is open. '
+                            'No auto-sell.'
+                        : 'You get a notification when the price crosses a '
+                            'level while the app is open (on the Portfolio '
+                            'tab). Paper alerts only — no auto-sell.',
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 ],

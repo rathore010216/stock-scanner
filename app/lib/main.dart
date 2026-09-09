@@ -4,10 +4,15 @@ import 'package:flutter/material.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/home_shell.dart';
+import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  // Best-effort: set up local notifications (SL/target alerts).
+  try {
+    await NotificationService.instance.init();
+  } catch (_) {}
   runApp(const StockApp());
 }
 

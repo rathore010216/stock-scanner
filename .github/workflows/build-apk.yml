@@ -57,6 +57,18 @@ jobs:
           # Firebase needs minSdk >= 23; several plugins need NDK 27.
           sed -i 's#flutter.minSdkVersion#23#g' "$APP"
           sed -i 's#flutter.ndkVersion#"27.0.12077973"#g' "$APP"
+
+          # flutter_local_notifications requires core library desugaring.
+          if [ -f android/settings.gradle.kts ]; then
+            # Kotlin DSL: enable desugaring in compileOptions and add the dep.
+            sed -i 's#isCoreLibraryDesugaringEnabled = true##g' "$APP"
+            sed -i 's#compileOptions {#compileOptions {\n        isCoreLibraryDesugaringEnabled = true#' "$APP"
+            printf '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")\n}\n' >> "$APP"
+          else
+            sed -i 's#coreLibraryDesugaringEnabled true##g' "$APP"
+            sed -i 's#compileOptions {#compileOptions {\n        coreLibraryDesugaringEnabled true#' "$APP"
+            printf '\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.2"\n}\n' >> "$APP"
+          fi
           echo "----- $APP -----"; cat "$APP"
 
       - name: Restore google-services.json
