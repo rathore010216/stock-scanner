@@ -32,6 +32,51 @@ def scr_trend_uptrend(df) -> tuple[bool, str]:
     return ok, "Close>EMA50>EMA200" if ok else ""
 
 
+def scr_pullback_uptrend(df) -> tuple[bool, str]:
+    """Recent short pullback within a confirmed uptrend — a possible entry.
+
+    Logic: the stock is in a long-term uptrend (50-EMA above 200-EMA, and price
+    still above the 200-EMA so the trend isn't broken), and it has dipped over
+    the LAST FEW DAYS ONLY (a short 2-4 session decline), not a prolonged
+    slide. It should have been strong just before the dip (above the 20-EMA a
+    week ago) and not be deeply oversold now (RSI 35-55). Classic 'buy the dip
+    in an uptrend'. RESEARCH FILTER, not a buy signal.
+    """
+    if len(df) < EMA_SLOW + 8:
+        return False, ""
+    row = df.iloc[-1]
+    close = row["Close"]
+    ema20 = row["ema_short"]
+    ema50 = row["ema_fast"]
+    ema200 = row["ema_slow"]
+    rsi = row["rsi"]
+    if any(pd.isna(v) for v in (ema20, ema50, ema200, rsi)):
+        return False, ""
+
+    closes = df["Close"]
+
+    # 1. Long-term uptrend intact.
+    uptrend = ema50 > ema200 and close > ema200
+
+    # 2. The dip is RECENT and SHORT: down over the last ~3 sessions, and each
+    #    of the last 3 closes lower than the one before (a short slide), but the
+    #    dip is not longer than ~4 days (i.e. 5 days ago it was still rising).
+    ret_3d = (close - closes.iloc[-4]) / closes.iloc[-4]
+    last3_down = (closes.iloc[-1] < closes.iloc[-2] < closes.iloc[-3])
+    # Before the dip it was climbing (5->4 days ago was an up move / near highs).
+    was_rising = closes.iloc[-5] > closes.iloc[-8]
+    recent_dip = last3_down and ret_3d < 0 and was_rising
+
+    # 3. A dip, not a breakdown: still near the 50-EMA (shallow undercut ok),
+    #    and RSI in a pullback band.
+    shallow = close >= ema50 * 0.98
+    dip_zone = 35 <= rsi <= 55
+
+    ok = uptrend and recent_dip and shallow and dip_zone
+    return ok, (f"recent dip in uptrend (RSI {rsi:.0f}, {ret_3d*100:.1f}% 3d)"
+                if ok else "")
+
+
 def scr_breakout_52w(df) -> tuple[bool, str]:
     close = df["Close"]
     high = df["High"]
@@ -108,6 +153,7 @@ def scr_cup_handle(df) -> tuple[bool, str]:
 # Per-stock screeners registry.
 PER_STOCK = {
     "trend": scr_trend_uptrend,
+    "pullback_uptrend": scr_pullback_uptrend,
     "breakout_52w": scr_breakout_52w,
     "rsi2": scr_rsi2_oversold,
     "volume_surge": scr_volume_surge,

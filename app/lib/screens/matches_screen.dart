@@ -9,6 +9,7 @@ import 'chart_screen.dart';
 /// Human-friendly labels for screener keys.
 const screenerLabels = {
   'trend': 'Uptrend',
+  'pullback_uptrend': 'Dip in uptrend',
   'breakout_52w': '52w breakout',
   'volume_surge': 'Volume surge',
   'momentum': 'Momentum',

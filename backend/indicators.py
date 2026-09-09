@@ -64,6 +64,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     out["ema_fast"] = ema(close, C.EMA_FAST)
     out["ema_slow"] = ema(close, C.EMA_SLOW)
+    out["ema_short"] = ema(close, 20)  # short-term trend for pullback detection
     out["rsi"] = rsi_wilder(close, C.RSI_PERIOD)
 
     macd_line, signal_line, hist = macd(
