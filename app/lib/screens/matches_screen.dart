@@ -338,6 +338,20 @@ class _MatchTile extends StatelessWidget {
             ],
           ),
           const SizedBox(width: 6),
+          IconButton(
+            tooltip: 'Add to watchlist',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.star_border, size: 22),
+            onPressed: () async {
+              try {
+                await PortfolioService().addToWatchlist(match.symbol);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('${match.symbol} added to watchlist')));
+                }
+              } catch (_) {}
+            },
+          ),
           OutlinedButton(
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 10),

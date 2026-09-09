@@ -4,6 +4,8 @@ import '../services/auth_service.dart';
 import '../services/portfolio_service.dart';
 import '../services/stock_service.dart';
 import 'chart_screen.dart';
+import 'trade_log_screen.dart';
+import 'performance_screen.dart';
 
 class PortfolioScreen extends StatefulWidget {
   const PortfolioScreen({super.key});
@@ -20,6 +22,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   // symbol -> (last, prev) close prices, fetched for held symbols.
   final Map<String, ({double last, double prev})> _prices = {};
   bool _pricesLoading = false;
+  bool _snapshotDone = false;
 
   Future<void> _loadPrices(List<Holding> holdings) async {
     setState(() => _pricesLoading = true);
@@ -40,6 +43,20 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
       appBar: AppBar(
         title: const Text('Portfolio'),
         actions: [
+          IconButton(
+            tooltip: 'Performance',
+            icon: const Icon(Icons.show_chart),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const PerformanceScreen(),
+            )),
+          ),
+          IconButton(
+            tooltip: 'Trade log',
+            icon: const Icon(Icons.receipt_long),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const TradeLogScreen(),
+            )),
+          ),
           PopupMenuButton<String>(
             onSelected: (v) async {
               if (v == 'reset') {
@@ -85,6 +102,15 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
           final totalValue = p.cash + holdingsValue;
           final totalPnl = totalValue - kStartingCapital;
           final totalPnlPct = totalPnl / kStartingCapital * 100;
+
+          // Snapshot today's total value once per session, after prices are
+          // loaded (so the equity curve uses live values, not avg-cost).
+          if (!_snapshotDone && !_pricesLoading) {
+            _snapshotDone = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _portfolio.snapshotValue(totalValue);
+            });
+          }
 
           return RefreshIndicator(
             onRefresh: () async {
@@ -395,9 +421,80 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               ],
             ),
           ),
+          // Note row: show existing note or an "Add note" affordance.
+          InkWell(
+            onTap: () => _showNoteDialog(h),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    h.note == null
+                        ? Icons.note_add_outlined
+                        : Icons.sticky_note_2_outlined,
+                    size: 15,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      h.note ?? 'Add a note',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontStyle:
+                            h.note == null ? FontStyle.italic : FontStyle.normal,
+                        color: h.note == null
+                            ? Colors.grey
+                            : Colors.black.withValues(alpha: 0.75),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _showNoteDialog(Holding h) async {
+    final controller = TextEditingController(text: h.note ?? '');
+    final saved = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Note · ${h.symbol}'),
+        content: TextField(
+          controller: controller,
+          maxLines: 4,
+          maxLength: 500,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'e.g. waiting for Q3 results / breakout above 450',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (saved == null) return;
+    try {
+      await _portfolio.setNote(h.symbol, saved);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not save note')));
+      }
+    }
   }
 
   Widget _levelBadge(String text, Color color, {bool filled = false}) {
