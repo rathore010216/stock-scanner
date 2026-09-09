@@ -48,18 +48,19 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
             ),
         ],
       ),
-      body: StreamBuilder<List<String>>(
+      body: StreamBuilder<List<WatchItem>>(
         stream: _portfolio.watchlistStream(),
         builder: (context, snap) {
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          final symbols = snap.data!;
+          final items = snap.data!;
+          final symbols = items.map((e) => e.symbol).toList();
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _loadPrices(symbols);
           });
 
-          if (symbols.isEmpty) {
+          if (items.isEmpty) {
             return const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),
@@ -78,10 +79,11 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
               await _loadPrices(symbols);
             },
             child: ListView.separated(
-              itemCount: symbols.length,
+              itemCount: items.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (context, i) {
-                final s = symbols[i];
+                final item = items[i];
+                final s = item.symbol;
                 final px = _prices[s];
                 final last = px?.last;
                 final prev = px?.prev;
@@ -91,32 +93,76 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
                 final chgColor = (dayChg ?? 0) >= 0
                     ? Colors.green.shade700
                     : Colors.red.shade700;
-                return ListTile(
-                  title: Text(s,
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: last != null
-                      ? Text('₹${last.toStringAsFixed(2)}')
-                      : const Text('tap to load price',
-                          style: TextStyle(color: Colors.grey)),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (dayChg != null)
-                        Text(
-                          '${dayChg >= 0 ? '+' : ''}${dayChg.toStringAsFixed(2)}%',
-                          style: TextStyle(
-                              color: chgColor, fontWeight: FontWeight.w600),
-                        ),
-                      IconButton(
-                        tooltip: 'Remove',
-                        icon: const Icon(Icons.close, size: 20),
-                        onPressed: () => _portfolio.removeFromWatchlist(s),
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ListTile(
+                      title: Text(s,
+                          style:
+                              const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: last != null
+                          ? Text('₹${last.toStringAsFixed(2)}')
+                          : const Text('tap to load price',
+                              style: TextStyle(color: Colors.grey)),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (dayChg != null)
+                            Text(
+                              '${dayChg >= 0 ? '+' : ''}'
+                              '${dayChg.toStringAsFixed(2)}%',
+                              style: TextStyle(
+                                  color: chgColor,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          IconButton(
+                            tooltip: 'Remove',
+                            icon: const Icon(Icons.close, size: 20),
+                            onPressed: () =>
+                                _portfolio.removeFromWatchlist(s),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => ChartScreen(symbol: s),
-                  )),
+                      onTap: () =>
+                          Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => ChartScreen(symbol: s),
+                      )),
+                    ),
+                    // Note row — same affordance as portfolio holdings.
+                    InkWell(
+                      onTap: () => _showNoteDialog(item),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              item.note == null
+                                  ? Icons.note_add_outlined
+                                  : Icons.sticky_note_2_outlined,
+                              size: 15,
+                              color: Colors.grey,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                item.note ?? 'Add a note',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontStyle: item.note == null
+                                      ? FontStyle.italic
+                                      : FontStyle.normal,
+                                  color: item.note == null
+                                      ? Colors.grey
+                                      : Colors.black.withValues(alpha: 0.75),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 );
               },
             ),
@@ -129,6 +175,44 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
         label: const Text('Add symbol'),
       ),
     );
+  }
+
+  Future<void> _showNoteDialog(WatchItem item) async {
+    final controller = TextEditingController(text: item.note ?? '');
+    final saved = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Note · ${item.symbol}'),
+        content: TextField(
+          controller: controller,
+          maxLines: 4,
+          maxLength: 500,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'e.g. watching for breakout above 450 / earnings on 25th',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (saved == null) return;
+    try {
+      await _portfolio.setWatchlistNote(item.symbol, saved);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not save note')));
+      }
+    }
   }
 
   Future<void> _showAddDialog() async {

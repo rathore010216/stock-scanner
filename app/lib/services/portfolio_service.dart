@@ -86,6 +86,13 @@ class EquityPoint {
   const EquityPoint(this.date, this.value);
 }
 
+/// One watchlist entry: a symbol with an optional research note.
+class WatchItem {
+  final String symbol;
+  final String? note;
+  const WatchItem(this.symbol, this.note);
+}
+
 /// Snapshot of the portfolio.
 class Portfolio {
   final double cash;
@@ -287,17 +294,26 @@ class PortfolioService {
   }
 
   // ---------------------------------------------------------------------------
-  // Watchlist  (/portfolios/{uid}/watchlist/{symbol} = addedMs)
+  // Watchlist  (/portfolios/{uid}/watchlist/{symbol} = {addedAt, note})
+  // Legacy entries may be a plain number (addedMs); handled below.
   // ---------------------------------------------------------------------------
 
-  Stream<List<String>> watchlistStream() {
+  Stream<List<WatchItem>> watchlistStream() {
     return _ref.child('watchlist').onValue.map((event) {
       final val = event.snapshot.value;
-      final out = <String>[];
+      final out = <WatchItem>[];
       if (val is Map) {
-        val.forEach((k, _) => out.add(k as String));
+        val.forEach((k, v) {
+          String? note;
+          if (v is Map) {
+            final n = v['note'];
+            if (n is String && n.trim().isNotEmpty) note = n;
+          }
+          // Legacy value (plain number) → no note.
+          out.add(WatchItem(k as String, note));
+        });
       }
-      out.sort();
+      out.sort((a, b) => a.symbol.compareTo(b.symbol));
       return out;
     });
   }
@@ -305,13 +321,22 @@ class PortfolioService {
   Future<void> addToWatchlist(String symbol) async {
     final s = symbol.trim().toUpperCase();
     if (s.isEmpty) throw StateError('Enter a symbol');
+    // Write only addedAt so an existing note (if any) is preserved.
     await _ref
-        .child('watchlist/$s')
+        .child('watchlist/$s/addedAt')
         .set(DateTime.now().millisecondsSinceEpoch);
   }
 
   Future<void> removeFromWatchlist(String symbol) async {
     await _ref.child('watchlist/$symbol').remove();
+  }
+
+  /// Set or clear a note on a watchlist symbol. Empty string clears it.
+  Future<void> setWatchlistNote(String symbol, String note) async {
+    final trimmed = note.trim();
+    await _ref
+        .child('watchlist/$symbol/note')
+        .set(trimmed.isEmpty ? null : trimmed);
   }
 
   // ---------------------------------------------------------------------------
