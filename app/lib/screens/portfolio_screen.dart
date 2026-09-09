@@ -420,21 +420,76 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 
   Future<void> _showLevelsDialog(Holding h) async {
+    // Input mode: absolute price (₹) or percentage off avg buy (%).
+    // Storage is always price-based; % is converted on save.
+    bool percentMode = false;
+    final avg = h.avgPrice;
+
+    // Seed controllers from any existing price levels (as ₹ initially).
     final stopController = TextEditingController(
         text: h.stopLoss != null ? h.stopLoss!.toStringAsFixed(2) : '');
     final targetController = TextEditingController(
         text: h.target != null ? h.target!.toStringAsFixed(2) : '');
+
+    // Convert a stop-loss between ₹ and % (SL is below avg → positive % down).
+    double? stopToPercent(double price) =>
+        avg > 0 ? (avg - price) / avg * 100 : null;
+    double stopFromPercent(double pct) => avg * (1 - pct / 100);
+    // Target is above avg → positive % up.
+    double? targetToPercent(double price) =>
+        avg > 0 ? (price - avg) / avg * 100 : null;
+    double targetFromPercent(double pct) => avg * (1 + pct / 100);
+
     final result = await showDialog<({double? stop, double? target})>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, setLocal) {
-          final stop = double.tryParse(stopController.text.trim());
-          final target = double.tryParse(targetController.text.trim());
-          // Validation: SL should be below avg, target above (soft warnings).
+          final rawStop = double.tryParse(stopController.text.trim());
+          final rawTarget = double.tryParse(targetController.text.trim());
+
+          // Resolve to actual prices based on the current input mode.
+          final double? stopPrice = rawStop == null
+              ? null
+              : (percentMode ? stopFromPercent(rawStop) : rawStop);
+          final double? targetPrice = rawTarget == null
+              ? null
+              : (percentMode ? targetFromPercent(rawTarget) : rawTarget);
+
           String? warn;
-          if (stop != null && target != null && stop >= target) {
+          if (stopPrice != null && targetPrice != null &&
+              stopPrice >= targetPrice) {
             warn = 'Stop-loss should be below the target.';
+          } else if (percentMode && ((rawStop != null && rawStop < 0) ||
+              (rawTarget != null && rawTarget < 0))) {
+            warn = 'Enter a positive % (SL is below avg, target above).';
           }
+
+          void switchMode(bool toPercent) {
+            if (toPercent == percentMode) return;
+            // Convert current field values between ₹ and %.
+            if (toPercent) {
+              if (rawStop != null) {
+                final p = stopToPercent(rawStop);
+                stopController.text = p != null ? p.toStringAsFixed(2) : '';
+              }
+              if (rawTarget != null) {
+                final p = targetToPercent(rawTarget);
+                targetController.text = p != null ? p.toStringAsFixed(2) : '';
+              }
+            } else {
+              if (rawStop != null) {
+                stopController.text =
+                    stopFromPercent(rawStop).toStringAsFixed(2);
+              }
+              if (rawTarget != null) {
+                targetController.text =
+                    targetFromPercent(rawTarget).toStringAsFixed(2);
+              }
+            }
+            setLocal(() => percentMode = toPercent);
+          }
+
+          final unit = percentMode ? '%' : '₹';
           return AlertDialog(
             title: Text('SL / Target · ${h.symbol}'),
             content: SingleChildScrollView(
@@ -442,17 +497,31 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Avg buy ₹${h.avgPrice.toStringAsFixed(2)}',
+                  Text('Avg buy ₹${avg.toStringAsFixed(2)}',
                       style: const TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 12),
+                  // ₹ / % mode toggle.
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(value: false, label: Text('Price ₹')),
+                      ButtonSegment(value: true, label: Text('Percent %')),
+                    ],
+                    selected: {percentMode},
+                    onSelectionChanged: (s) => switchMode(s.first),
+                    showSelectedIcon: false,
+                  ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: stopController,
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Stop-loss price (₹)',
+                    decoration: InputDecoration(
+                      labelText: 'Stop-loss ($unit)',
                       hintText: 'leave blank to clear',
-                      border: OutlineInputBorder(),
+                      helperText: (percentMode && stopPrice != null)
+                          ? '= ₹${stopPrice.toStringAsFixed(2)}'
+                          : null,
+                      border: const OutlineInputBorder(),
                     ),
                     onChanged: (_) => setLocal(() {}),
                   ),
@@ -461,10 +530,13 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     controller: targetController,
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Target price (₹)',
+                    decoration: InputDecoration(
+                      labelText: 'Target ($unit)',
                       hintText: 'leave blank to clear',
-                      border: OutlineInputBorder(),
+                      helperText: (percentMode && targetPrice != null)
+                          ? '= ₹${targetPrice.toStringAsFixed(2)}'
+                          : null,
+                      border: const OutlineInputBorder(),
                     ),
                     onChanged: (_) => setLocal(() {}),
                   ),
@@ -475,10 +547,15 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                             color: Colors.orange, fontSize: 12)),
                   ],
                   const SizedBox(height: 8),
-                  const Text(
-                    'Paper alerts only — the app flags when the price crosses '
-                    'a level during market-hours refresh. It does not auto-sell.',
-                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  Text(
+                    percentMode
+                        ? 'Percent is measured off your avg buy price — '
+                            'SL below, target above. Paper alerts only; '
+                            'no auto-sell.'
+                        : 'Paper alerts only — the app flags when the price '
+                            'crosses a level during market-hours refresh. '
+                            'It does not auto-sell.',
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 ],
               ),
@@ -489,7 +566,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                   child: const Text('Cancel')),
               FilledButton(
                 onPressed: () => Navigator.pop(
-                    ctx, (stop: stop, target: target)),
+                    ctx, (stop: stopPrice, target: targetPrice)),
                 child: const Text('Save'),
               ),
             ],
