@@ -150,6 +150,9 @@ class _ChartScreenState extends State<ChartScreen> {
           minY: _min([d.bbLower, d.close, d.ema200]) * 0.99,
           maxY: _max([d.bbUpper, d.close]) * 1.01,
           n: n,
+          dates: d.dates,
+          valuePrefix: '₹',
+          primaryBarIndex: 2, // the Close line
         ),
         _legend(const {
           'Close': Colors.black,
@@ -172,6 +175,7 @@ class _ChartScreenState extends State<ChartScreen> {
           maxY: _max([d.macd, d.macdSignal, d.macdHist]) * 1.1,
           n: n,
           zeroLine: true,
+          dates: d.dates,
         ),
         _legend(const {'MACD': Colors.blue, 'Signal': Colors.red}),
         const SizedBox(height: 16),
@@ -183,6 +187,7 @@ class _ChartScreenState extends State<ChartScreen> {
           maxY: 100,
           n: n,
           extraLines: [30, 50, 70],
+          dates: d.dates,
         ),
         const SizedBox(height: 24),
       ],
@@ -212,6 +217,9 @@ class _ChartScreenState extends State<ChartScreen> {
     required int n,
     bool zeroLine = false,
     List<double> extraLines = const [],
+    List<String>? dates, // when provided, tap shows date + value
+    String valuePrefix = '',
+    int primaryBarIndex = 0, // which line's value to show in the tooltip
   }) {
     final hLines = <HorizontalLine>[];
     if (zeroLine) {
@@ -224,6 +232,9 @@ class _ChartScreenState extends State<ChartScreen> {
           strokeWidth: 0.6,
           dashArray: [4, 4]));
     }
+    // Which bar index carries the "main" value we want in the tooltip — the
+    // last line added is the primary series for MACD/RSI; for the price panel
+    // we mark the Close line explicitly via [primaryBarIndex].
     return SizedBox(
       height: height,
       child: LineChart(LineChartData(
@@ -243,7 +254,55 @@ class _ChartScreenState extends State<ChartScreen> {
         gridData: const FlGridData(show: true, drawVerticalLine: false),
         borderData: FlBorderData(
             show: true, border: Border.all(color: Colors.grey.shade300)),
-        lineTouchData: const LineTouchData(enabled: false),
+        // Google-Finance-style crosshair + tooltip: tap/drag shows the date
+        // and value at that point. A vertical indicator line is drawn.
+        lineTouchData: LineTouchData(
+          enabled: true,
+          getTouchedSpotIndicator: (barData, indexes) {
+            return indexes.map((i) {
+              return TouchedSpotIndicatorData(
+                const FlLine(color: Colors.black38, strokeWidth: 1),
+                FlDotData(
+                  // Only draw the dot on the primary series for a clean look.
+                  show: true,
+                  getDotPainter: (spot, percent, bar, index) {
+                    final isPrimary = lines.isNotEmpty &&
+                        bar == lines[primaryBarIndex.clamp(0, lines.length - 1)];
+                    return FlDotCirclePainter(
+                      radius: isPrimary ? 4 : 0,
+                      color: bar.color ?? Colors.black,
+                      strokeWidth: 0,
+                    );
+                  },
+                ),
+              );
+            }).toList();
+          },
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipColor: (_) => Colors.black87,
+            maxContentWidth: 160,
+            getTooltipItems: (spots) {
+              // Show the date + the primary series' value once; suppress the
+              // other overlapping lines so the tooltip stays clean.
+              return spots.map((s) {
+                if (s.barIndex != primaryBarIndex) return null;
+                final xi = s.x.round();
+                final dateStr = (dates != null && xi >= 0 && xi < dates.length)
+                    ? dates[xi]
+                    : '';
+                final valStr = '$valuePrefix${s.y.toStringAsFixed(2)}';
+                return LineTooltipItem(
+                  dateStr.isEmpty ? valStr : '$dateStr\n$valStr',
+                  const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600),
+                );
+              }).toList();
+            },
+          ),
+          handleBuiltInTouches: true,
+        ),
       )),
     );
   }
