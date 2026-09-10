@@ -238,6 +238,12 @@ class _MatchesScreenState extends State<MatchesScreen> {
                     setState(() => _active..clear()..addAll(_allScreeners)),
                 child: const Text('All'),
               ),
+              TextButton(
+                onPressed: _active.isEmpty
+                    ? null
+                    : () => setState(() => _active.clear()),
+                child: const Text('None'),
+              ),
             ],
           ),
         ),
