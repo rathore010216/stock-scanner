@@ -8,6 +8,35 @@ import 'chart_screen.dart';
 import 'trade_log_screen.dart';
 import 'performance_screen.dart';
 
+/// Sort options for the holdings list.
+enum _HoldingSort {
+  symbol,
+  pnlAmountAsc, // biggest losses (amount) first
+  pnlAmountDesc, // biggest gains (amount) first
+  pnlPctAsc, // biggest losses (%) first
+  pnlPctDesc, // biggest gains (%) first
+  valueDesc, // largest position value first
+}
+
+extension _HoldingSortLabel on _HoldingSort {
+  String get label {
+    switch (this) {
+      case _HoldingSort.symbol:
+        return 'Symbol (A-Z)';
+      case _HoldingSort.pnlAmountAsc:
+        return 'Loss ₹ (worst first)';
+      case _HoldingSort.pnlAmountDesc:
+        return 'Gain ₹ (best first)';
+      case _HoldingSort.pnlPctAsc:
+        return 'Loss % (worst first)';
+      case _HoldingSort.pnlPctDesc:
+        return 'Gain % (best first)';
+      case _HoldingSort.valueDesc:
+        return 'Position value';
+    }
+  }
+}
+
 class PortfolioScreen extends StatefulWidget {
   const PortfolioScreen({super.key});
 
@@ -24,6 +53,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   final Map<String, ({double last, double prev})> _prices = {};
   bool _pricesLoading = false;
   bool _snapshotDone = false;
+
+  // Current holdings sort order.
+  _HoldingSort _sortMode = _HoldingSort.symbol;
 
   // De-dup for SL/target notifications: tracks symbols currently "in" a hit
   // zone so we notify on the crossing, not on every refresh. Cleared when the
@@ -85,6 +117,47 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 
   String _money(double v) => '₹${v.toStringAsFixed(2)}';
+
+  /// Sort holdings per the current [_sortMode], using loaded prices for P/L.
+  List<Holding> _sortedHoldings(List<Holding> holdings) {
+    double pnlAmt(Holding h) {
+      final last = _prices[h.symbol]?.last ?? h.avgPrice;
+      return (last - h.avgPrice) * h.qty;
+    }
+
+    double pnlPct(Holding h) {
+      final last = _prices[h.symbol]?.last ?? h.avgPrice;
+      return h.avgPrice > 0 ? (last - h.avgPrice) / h.avgPrice * 100 : 0;
+    }
+
+    double value(Holding h) {
+      final last = _prices[h.symbol]?.last ?? h.avgPrice;
+      return h.qty * last;
+    }
+
+    final list = [...holdings];
+    switch (_sortMode) {
+      case _HoldingSort.symbol:
+        list.sort((a, b) => a.symbol.compareTo(b.symbol));
+        break;
+      case _HoldingSort.pnlAmountAsc:
+        list.sort((a, b) => pnlAmt(a).compareTo(pnlAmt(b)));
+        break;
+      case _HoldingSort.pnlAmountDesc:
+        list.sort((a, b) => pnlAmt(b).compareTo(pnlAmt(a)));
+        break;
+      case _HoldingSort.pnlPctAsc:
+        list.sort((a, b) => pnlPct(a).compareTo(pnlPct(b)));
+        break;
+      case _HoldingSort.pnlPctDesc:
+        list.sort((a, b) => pnlPct(b).compareTo(pnlPct(a)));
+        break;
+      case _HoldingSort.valueDesc:
+        list.sort((a, b) => value(b).compareTo(value(a)));
+        break;
+    }
+    return list;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -182,6 +255,25 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                           height: 14,
                           width: 14,
                           child: CircularProgressIndicator(strokeWidth: 2)),
+                    if (p.holdings.length > 1)
+                      PopupMenuButton<_HoldingSort>(
+                        tooltip: 'Sort holdings',
+                        initialValue: _sortMode,
+                        onSelected: (m) => setState(() => _sortMode = m),
+                        itemBuilder: (_) => [
+                          for (final m in _HoldingSort.values)
+                            PopupMenuItem(value: m, child: Text(m.label)),
+                        ],
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.sort, size: 18),
+                            const SizedBox(width: 4),
+                            Text(_sortMode.label,
+                                style: const TextStyle(fontSize: 12)),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -193,7 +285,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                       textAlign: TextAlign.center,
                     ),
                   ),
-                ...p.holdings.map((h) => _holdingTile(h)),
+                ..._sortedHoldings(p.holdings).map((h) => _holdingTile(h)),
                 const SizedBox(height: 16),
                 const Text(
                   'Paper trading · prices at last close · not real money · '
