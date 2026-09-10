@@ -17,6 +17,8 @@ RSI_PERIOD = 14
 MACD_FAST, MACD_SLOW, MACD_SIGNAL = 12, 26, 9
 BB_PERIOD, BB_STD = 20, 2.0
 ATR_PERIOD = 14
+ADX_PERIOD = 14
+ADX_STRONG = 25            # ADX above this = strong trend (momentum-friendly)
 BREAKOUT_LOOKBACK = 20
 VOL_AVG_PERIOD = 20
 

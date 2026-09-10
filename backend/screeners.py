@@ -142,6 +142,24 @@ def scr_macd_cross(df) -> tuple[bool, str]:
     return False, ""
 
 
+def scr_adx_strong(df) -> tuple[bool, str]:
+    """Strong UP-trend by ADX — a momentum-friendly trend-strength filter.
+
+    ADX above ~25 means a strong trend (regardless of direction); we also
+    require +DI > -DI so the strength is to the UPSIDE, and price above the
+    200-EMA to keep it long-side. RESEARCH FILTER, not a buy signal.
+    """
+    row = df.iloc[-1]
+    adx_v = row.get("adx")
+    plus = row.get("plus_di")
+    minus = row.get("minus_di")
+    ema200 = row.get("ema_slow")
+    if any(v is None or pd.isna(v) for v in (adx_v, plus, minus, ema200)):
+        return False, ""
+    ok = (adx_v >= C.ADX_STRONG and plus > minus and row["Close"] > ema200)
+    return ok, f"strong uptrend (ADX {adx_v:.0f})" if ok else ""
+
+
 def scr_cup_handle(df) -> tuple[bool, str]:
     det = detect_cup_handle(df, require_breakout=False)
     if det:
@@ -159,6 +177,7 @@ PER_STOCK = {
     "volume_surge": scr_volume_surge,
     "bollinger_squeeze": scr_bollinger_squeeze,
     "macd_cross": scr_macd_cross,
+    "adx_strong": scr_adx_strong,
     "cup_handle": scr_cup_handle,
 }
 
@@ -186,3 +205,41 @@ def momentum_top_decile(data_ind: dict[str, pd.DataFrame],
     ranked = sorted(rs.items(), key=lambda kv: kv[1], reverse=True)
     n_top = max(1, int(len(ranked) * top_frac))
     return {s for s, _ in ranked[:n_top]}
+
+
+def _rank_top_by_return(data_ind, formation, skip=0, top_frac=0.10) -> set[str]:
+    """Generic cross-sectional momentum: rank by return over the window
+    [t-formation-skip, t-skip], keep names above their 200-DMA, return the top
+    `top_frac`. `skip` implements the academic '12-1' convention (skip the most
+    recent `skip` bars, which tend to mean-revert)."""
+    rs = {}
+    need = formation + skip + EMA_SLOW
+    for sym, df in data_ind.items():
+        if len(df) < need:
+            continue
+        close = df["Close"]
+        sma200 = close.rolling(EMA_SLOW).mean().iloc[-1]
+        if pd.isna(sma200) or close.iloc[-1] <= sma200:
+            continue
+        recent = close.iloc[-1 - skip]
+        older = close.iloc[-1 - skip - formation]
+        if older > 0:
+            rs[sym] = (recent - older) / older
+    if not rs:
+        return set()
+    ranked = sorted(rs.items(), key=lambda kv: kv[1], reverse=True)
+    n_top = max(1, int(len(ranked) * top_frac))
+    return {s for s, _ in ranked[:n_top]}
+
+
+def momentum_6m(data_ind, top_frac: float = 0.10) -> set[str]:
+    """Top decile by 6-month (~126 trading day) return, above 200-DMA."""
+    return _rank_top_by_return(data_ind, formation=126, skip=0,
+                               top_frac=top_frac)
+
+
+def momentum_12_1(data_ind, top_frac: float = 0.10) -> set[str]:
+    """Academic 12-1 momentum: 12-month (~252d) return skipping the most recent
+    month (~21d), which is the classic Jegadeesh-Titman formation. Above 200-DMA."""
+    return _rank_top_by_return(data_ind, formation=252, skip=21,
+                               top_frac=top_frac)

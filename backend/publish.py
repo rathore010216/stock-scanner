@@ -70,6 +70,8 @@ def build_payload():
         ind[sym] = compute_indicators(raw)
 
     momentum_set = S.momentum_top_decile(ind, formation=60, top_frac=0.10)
+    momentum_6m_set = S.momentum_6m(ind, top_frac=0.10)
+    momentum_12_1_set = S.momentum_12_1(ind, top_frac=0.10)
 
     matches = []
     charts = {}  # symbol -> chart dict (stored separately, fetched on demand)
@@ -83,6 +85,10 @@ def build_payload():
                 triggered.append(key)
         if sym in momentum_set:
             triggered.append("momentum")
+        if sym in momentum_6m_set:
+            triggered.append("momentum_6m")
+        if sym in momentum_12_1_set:
+            triggered.append("momentum_12_1")
         if not triggered:
             continue
         row = df.iloc[-1]
@@ -108,7 +114,8 @@ def build_payload():
         "as_of": as_of,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "disclaimer": DISCLAIMER,
-        "screeners": list(S.PER_STOCK.keys()) + ["momentum"],
+        "screeners": list(S.PER_STOCK.keys())
+        + ["momentum", "momentum_6m", "momentum_12_1"],
         "matches": matches,
     }
     return summary, charts

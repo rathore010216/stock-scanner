@@ -57,6 +57,38 @@ def atr(df: pd.DataFrame, period=14) -> pd.Series:
     return tr.ewm(alpha=1 / period, adjust=False).mean()
 
 
+def adx(df: pd.DataFrame, period=14):
+    """Average Directional Index (Wilder). Returns (adx, plus_di, minus_di).
+
+    ADX measures trend STRENGTH regardless of direction; >25 is a strong trend,
+    <20 is choppy/rangebound. +DI/-DI give the direction.
+    """
+    high, low, close = df["High"], df["Low"], df["Close"]
+    prev_close = close.shift(1)
+
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = ((up_move > down_move) & (up_move > 0)) * up_move.clip(lower=0)
+    minus_dm = ((down_move > up_move) & (down_move > 0)) * down_move.clip(lower=0)
+
+    tr = pd.concat([
+        (high - low),
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+
+    # Wilder smoothing (EMA with alpha = 1/period).
+    atr_w = tr.ewm(alpha=1 / period, adjust=False).mean()
+    plus_di = 100 * (plus_dm.ewm(alpha=1 / period, adjust=False).mean()
+                     / atr_w.replace(0.0, np.nan))
+    minus_di = 100 * (minus_dm.ewm(alpha=1 / period, adjust=False).mean()
+                      / atr_w.replace(0.0, np.nan))
+    dx = 100 * ((plus_di - minus_di).abs()
+                / (plus_di + minus_di).replace(0.0, np.nan))
+    adx_line = dx.ewm(alpha=1 / period, adjust=False).mean()
+    return adx_line, plus_di, minus_di
+
+
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Add all indicator columns to a single stock's OHLCV DataFrame."""
     out = df.copy()
@@ -80,6 +112,11 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["bb_bandwidth"] = (upper - lower) / mid.replace(0.0, np.nan)
 
     out["atr"] = atr(out, C.ATR_PERIOD)
+
+    adx_line, plus_di, minus_di = adx(out, C.ADX_PERIOD)
+    out["adx"] = adx_line
+    out["plus_di"] = plus_di
+    out["minus_di"] = minus_di
 
     # Rolling 20-day high of High, EXCLUDING today (shift 1) for breakout ref.
     out["high_20_prev"] = out["High"].rolling(
