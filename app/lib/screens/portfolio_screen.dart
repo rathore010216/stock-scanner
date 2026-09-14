@@ -474,15 +474,35 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     final stopHit = hasPrice && h.stopHit(last);
     final targetHit = hasPrice && h.targetHit(last);
 
+    // Day's P/L for this holding: (last - prevClose) * qty. Only meaningful
+    // when we actually have a fetched price (else prev == last == avg).
+    final prev = px?.prev ?? last;
+    final dayPnl = (last - prev) * h.qty;
+    final dayPct = prev > 0 ? (last - prev) / prev * 100 : 0.0;
+    final dayColor = dayPnl >= 0 ? Colors.green.shade700 : Colors.red.shade700;
+
     return Card(
       child: Column(
         children: [
           ListTile(
             title: Text(h.symbol,
                 style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(
-                '${h.qty} @ avg ₹${h.avgPrice.toStringAsFixed(2)}  ·  '
-                'now ₹${last.toStringAsFixed(2)}'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${h.qty} @ avg ₹${h.avgPrice.toStringAsFixed(2)}  ·  '
+                    'now ₹${last.toStringAsFixed(2)}'),
+                if (hasPrice)
+                  Text(
+                    "Today ${dayPnl >= 0 ? '+' : ''}${_money(dayPnl)} "
+                    '(${dayPct >= 0 ? '+' : ''}${dayPct.toStringAsFixed(2)}%)',
+                    style: TextStyle(
+                        color: dayColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500),
+                  ),
+              ],
+            ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
