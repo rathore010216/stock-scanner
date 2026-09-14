@@ -84,22 +84,66 @@ def fetch_quotes(symbols: list[str]) -> dict:
     return out
 
 
+def fetch_indices() -> dict:
+    """Fetch NIFTY 50 and SENSEX latest + previous close for the header strip.
+
+    Uses Yahoo index tickers. Cheap (2 tickers). Returns
+    {name: {price, prevClose}} with human names as keys.
+    """
+    tickers = {"NIFTY": "^NSEI", "SENSEX": "^BSESN"}
+    try:
+        data = yf.download(
+            tickers=" ".join(tickers.values()),
+            period="5d",
+            interval="1d",
+            group_by="ticker",
+            auto_adjust=False,
+            threads=False,
+            progress=False,
+        )
+    except Exception as e:
+        print(f"  index fetch failed: {e}")
+        return {}
+    out = {}
+    for name, yt in tickers.items():
+        try:
+            df = data[yt]
+            closes = df["Close"].dropna()
+            if closes.empty:
+                continue
+            last = float(closes.iloc[-1])
+            prev = float(closes.iloc[-2]) if len(closes) >= 2 else last
+            out[name] = {"price": round(last, 2), "prevClose": round(prev, 2)}
+        except Exception:
+            continue
+    return out
+
+
 def main():
     _init_admin()
     from firebase_admin import db as admin_db
+
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+
+    # Index strip (NIFTY / SENSEX) — cheap, always fetch.
+    indices = fetch_indices()
+    if indices:
+        for _n, q in indices.items():
+            q["ts"] = now
+        admin_db.reference("stock/indices").set(indices)
+        print(f"Updated indices: {list(indices.keys())}")
 
     symbols = _symbols_to_quote()
     print(f"Quoting {len(symbols)} symbols ...")
     quotes = fetch_quotes(symbols)
     if not quotes:
-        print("No quotes fetched; skipping write.")
-        return
-    now = dt.datetime.now(dt.timezone.utc).isoformat()
-    for sym, q in quotes.items():
-        q["ts"] = now
-    admin_db.reference("stock/quotes").update(quotes)
-    admin_db.reference("stock/quotesAsOf").set(now)
-    print(f"Updated {len(quotes)} quotes at {now}")
+        print("No quotes fetched; skipping quotes write.")
+    else:
+        for sym, q in quotes.items():
+            q["ts"] = now
+        admin_db.reference("stock/quotes").update(quotes)
+        admin_db.reference("stock/quotesAsOf").set(now)
+        print(f"Updated {len(quotes)} quotes at {now}")
 
 
 if __name__ == "__main__":

@@ -104,4 +104,23 @@ class StockService {
     final snap = await _db.child('stock/quotesAsOf').get();
     return snap.value?.toString();
   }
+
+  /// Index strip data: name -> (price, prevClose). Empty if unavailable.
+  /// Names are like 'NIFTY', 'SENSEX'.
+  Future<Map<String, ({double price, double prevClose})>> fetchIndices() async {
+    final snap = await _db.child('stock/indices').get();
+    final out = <String, ({double price, double prevClose})>{};
+    if (snap.exists && snap.value is Map) {
+      (snap.value as Map).forEach((k, v) {
+        if (v is Map && v['price'] is num) {
+          final price = (v['price'] as num).toDouble();
+          final prev = (v['prevClose'] is num)
+              ? (v['prevClose'] as num).toDouble()
+              : price;
+          out[k as String] = (price: price, prevClose: prev);
+        }
+      });
+    }
+    return out;
+  }
 }

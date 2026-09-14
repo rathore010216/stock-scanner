@@ -57,6 +57,22 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   // Current holdings sort order.
   _HoldingSort _sortMode = _HoldingSort.symbol;
 
+  // Index strip (NIFTY / SENSEX).
+  Map<String, ({double price, double prevClose})> _indices = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadIndices();
+  }
+
+  Future<void> _loadIndices() async {
+    try {
+      final idx = await _stock.fetchIndices();
+      if (mounted && idx.isNotEmpty) setState(() => _indices = idx);
+    } catch (_) {}
+  }
+
   // De-dup for SL/target notifications: tracks symbols currently "in" a hit
   // zone so we notify on the crossing, not on every refresh. Cleared when the
   // price moves back out of the zone.
@@ -237,11 +253,16 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
           return RefreshIndicator(
             onRefresh: () async {
               _prices.clear();
+              await _loadIndices();
               await _loadPrices(p.holdings);
             },
             child: ListView(
               padding: const EdgeInsets.all(12),
               children: [
+                if (_indices.isNotEmpty) ...[
+                  _indexStrip(),
+                  const SizedBox(height: 10),
+                ],
                 _summaryCard(totalValue, p.cash, holdingsValue, totalPnl,
                     totalPnlPct, dayPnl),
                 const SizedBox(height: 12),
@@ -401,6 +422,67 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             content: Text(e is StateError ? e.message : 'Buy failed')));
       }
     }
+  }
+
+  // Index ticker strip (NIFTY / SENSEX) shown at the top of Portfolio.
+  Widget _indexStrip() {
+    // Preferred display order; any others follow.
+    final order = ['NIFTY', 'SENSEX'];
+    final names = [
+      ...order.where(_indices.containsKey),
+      ..._indices.keys.where((k) => !order.contains(k)),
+    ];
+    return SizedBox(
+      height: 58,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: names.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final name = names[i];
+          final v = _indices[name]!;
+          final chg = v.price - v.prevClose;
+          final pct = v.prevClose > 0 ? chg / v.prevClose * 100 : 0.0;
+          final up = chg >= 0;
+          final c = up ? Colors.green.shade700 : Colors.red.shade700;
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.grey.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(name,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey)),
+                    const SizedBox(width: 8),
+                    Text(
+                      v.price.toStringAsFixed(2),
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${up ? '+' : ''}${chg.toStringAsFixed(2)} '
+                  '(${up ? '+' : ''}${pct.toStringAsFixed(2)}%)',
+                  style: TextStyle(
+                      fontSize: 12, color: c, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Widget _summaryCard(double totalValue, double cash, double holdingsValue,
