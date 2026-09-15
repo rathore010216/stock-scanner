@@ -115,6 +115,16 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
                                   color: chgColor,
                                   fontWeight: FontWeight.w600),
                             ),
+                          const SizedBox(width: 6),
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 10),
+                              minimumSize: const Size(0, 34),
+                            ),
+                            onPressed: () => _showBuyDialog(s, last),
+                            child: const Text('Buy'),
+                          ),
                           IconButton(
                             tooltip: 'Remove',
                             icon: const Icon(Icons.close, size: 20),
@@ -175,6 +185,89 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
         label: const Text('Add symbol'),
       ),
     );
+  }
+
+  Future<void> _showBuyDialog(String symbol, double? lastPrice) async {
+    final priceController = TextEditingController(
+        text: lastPrice != null ? lastPrice.toStringAsFixed(2) : '');
+    final qtyController = TextEditingController(text: '1');
+    final result = await showDialog<({int qty, double price})>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setLocal) {
+          final qty = int.tryParse(qtyController.text) ?? 0;
+          final price = double.tryParse(priceController.text) ?? 0;
+          final cost = qty * price;
+          return AlertDialog(
+            title: Text('Buy $symbol'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: priceController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Buy price (₹)',
+                      helperText: lastPrice != null
+                          ? 'last ₹${lastPrice.toStringAsFixed(2)}'
+                          : 'enter a price',
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setLocal(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: qtyController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Quantity (whole shares)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setLocal(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Estimated cost: ₹${cost.toStringAsFixed(2)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Paper trade — not real money, not linked to a live feed.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel')),
+              FilledButton(
+                onPressed: (qty > 0 && price > 0)
+                    ? () => Navigator.pop(ctx, (qty: qty, price: price))
+                    : null,
+                child: const Text('Buy'),
+              ),
+            ],
+          );
+        });
+      },
+    );
+    if (result == null) return;
+    try {
+      await _portfolio.buy(symbol, result.qty, result.price);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Bought ${result.qty} $symbol @ '
+                '₹${result.price.toStringAsFixed(2)}')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(e is StateError ? e.message : 'Buy failed')));
+      }
+    }
   }
 
   Future<void> _showNoteDialog(WatchItem item) async {
