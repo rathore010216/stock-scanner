@@ -161,8 +161,12 @@ class _ChartScreenState extends State<ChartScreen> {
           'Bollinger': Colors.grey,
         }),
         const SizedBox(height: 16),
-        _panelTitle('Volume · 20d avg'),
+        _panelTitle('Volume · blue = up day, red = down day'),
         _volumeChart(d, n),
+        _legend({
+          'Up day': Colors.blue.shade400,
+          'Down day': Colors.red.shade400,
+        }),
         const SizedBox(height: 16),
         _panelTitle('MACD (12,26,9)'),
         _lineChart(
@@ -313,9 +317,21 @@ class _ChartScreenState extends State<ChartScreen> {
     for (var i = 0; i < d.volume.length; i++) {
       final v = d.volume[i] ?? 0;
       if (v > maxV) maxV = v;
+      // Color by up/down day: close vs previous close. Blue = up day (buying
+      // pressure), red = down day (selling pressure). This is the standard
+      // OHLCV proxy — real buy/sell split needs tick data we don't have.
+      final close = d.close[i];
+      final prevClose = i > 0 ? d.close[i - 1] : null;
+      final Color barColor;
+      if (close == null || prevClose == null) {
+        barColor = Colors.blueGrey.shade300; // unknown direction
+      } else if (close >= prevClose) {
+        barColor = Colors.blue.shade400; // up day → "bought"
+      } else {
+        barColor = Colors.red.shade400; // down day → "sold"
+      }
       bars.add(BarChartGroupData(x: i, barRods: [
-        BarChartRodData(
-            toY: v, color: Colors.blueGrey.shade300, width: 2),
+        BarChartRodData(toY: v, color: barColor, width: 2),
       ]));
     }
     return SizedBox(
