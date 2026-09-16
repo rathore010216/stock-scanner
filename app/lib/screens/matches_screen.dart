@@ -114,7 +114,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('NSE Swing Screener'),
+        title: const Text('Nifty Stock Screener'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -129,7 +129,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
               builder: (ctx) => AlertDialog(
                 title: const Text('About'),
                 content: const Text(
-                  'NSE Swing Screener\n\n'
+                  'Nifty Stock Screener\n\n'
                   'Created and owned by Pawan.\n'
                   'Contact: pawan88@gmail.com\n\n'
                   'This app is a research/screening tool only and is NOT '
