@@ -54,6 +54,7 @@ class Trade {
   final int qty;
   final double price;
   final double? realizedPnl; // set on sells only
+  final double fee; // charges paid on this trade
   final int ms;
 
   const Trade({
@@ -63,6 +64,7 @@ class Trade {
     required this.price,
     required this.ms,
     this.realizedPnl,
+    this.fee = 0,
   });
 
   factory Trade.fromMap(Map m) => Trade(
@@ -73,6 +75,7 @@ class Trade {
         realizedPnl: (m['realizedPnl'] is num)
             ? (m['realizedPnl'] as num).toDouble()
             : null,
+        fee: (m['fee'] is num) ? (m['fee'] as num).toDouble() : 0,
         ms: (m['ms'] ?? 0) as int,
       );
 
@@ -107,6 +110,44 @@ class Portfolio {
 }
 
 const double kStartingCapital = 100000.0;
+
+/// Shoonya (Finvasia) equity **delivery** charge model. All rates are on
+/// turnover (qty * price) unless noted. Delivery is the relevant case for a
+/// swing/buy-and-hold paper tool.
+///
+/// Reference (shoonya.com/pricing, equity delivery):
+///  - Brokerage: ₹0 (zero on delivery)
+///  - STT: 0.10% on BOTH buy and sell
+///  - Exchange transaction: 0.00297%
+///  - SEBI: ₹10 per crore = 0.0001%
+///  - GST: 18% on (brokerage + txn + SEBI)
+///  - Stamp duty: 0.015% on BUY side only
+///  - DP charge: ₹9 + GST per scrip on SELL (shares leaving demat)
+class Fees {
+  static const double brokerage = 0.0; // delivery
+  static const double sttPct = 0.001; // 0.10% each side
+  static const double txnPct = 0.0000297; // 0.00297%
+  static const double sebiPct = 0.000001; // 0.0001% (₹10/cr)
+  static const double gstRate = 0.18;
+  static const double stampPct = 0.00015; // 0.015% buy side only
+  static const double dpCharge = 9.0; // ₹9 per scrip on sell
+
+  /// Total charges for one side of a delivery trade.
+  /// [isBuy] true = buy side (stamp applies), false = sell (STT + DP apply too).
+  static double forTrade({required bool isBuy, required double turnover}) {
+    final stt = sttPct * turnover; // both sides
+    final txn = txnPct * turnover;
+    final sebi = sebiPct * turnover;
+    final gst = gstRate * (brokerage + txn + sebi);
+    double total = brokerage + stt + txn + sebi + gst;
+    if (isBuy) {
+      total += stampPct * turnover; // stamp on buy only
+    } else {
+      total += dpCharge * (1 + gstRate); // DP ₹9 + GST on sell
+    }
+    return total;
+  }
+}
 
 /// Paper-trading portfolio stored at /portfolios/{uid}.
 class PortfolioService {
@@ -159,13 +200,16 @@ class PortfolioService {
   Future<void> buy(String symbol, int qty, double price) async {
     if (qty <= 0) throw StateError('Quantity must be at least 1');
     final cost = qty * price;
+    final fee = Fees.forTrade(isBuy: true, turnover: cost);
+    final totalDebit = cost + fee;
     final snap = await _ref.get();
     final m = (snap.value as Map?) ?? {};
     final cash = (m['cash'] is num) ? (m['cash'] as num).toDouble()
         : kStartingCapital;
-    if (cost > cash) {
-      throw StateError('Not enough cash (need ₹${cost.toStringAsFixed(0)}, '
-          'have ₹${cash.toStringAsFixed(0)})');
+    if (totalDebit > cash) {
+      throw StateError(
+          'Not enough cash (need ₹${totalDebit.toStringAsFixed(0)} incl. '
+          '₹${fee.toStringAsFixed(0)} fees, have ₹${cash.toStringAsFixed(0)})');
     }
 
     final holdings = (m['holdings'] as Map?) ?? {};
@@ -187,7 +231,7 @@ class PortfolioService {
     }
 
     await _ref.update({
-      'cash': cash - cost,
+      'cash': cash - totalDebit,
       'holdings/$symbol': {
         'qty': newQty,
         'avgPrice': newAvg,
@@ -197,12 +241,13 @@ class PortfolioService {
       },
     });
 
-    // Log the trade.
+    // Log the trade (with the fee charged).
     await _ref.child('trades').push().set({
       'symbol': symbol,
       'side': 'buy',
       'qty': qty,
       'price': price,
+      'fee': double.parse(fee.toStringAsFixed(2)),
       'ms': DateTime.now().millisecondsSinceEpoch,
     });
   }
@@ -236,14 +281,18 @@ class PortfolioService {
       throw StateError('You hold $eq share(s)');
     }
     final proceeds = qty * price;
-    final realized = (price - ep) * qty;
+    final fee = Fees.forTrade(isBuy: false, turnover: proceeds);
+    final netProceeds = proceeds - fee;
+    // Realized P/L is net of the sell-side fee. (The buy-side fee was already
+    // deducted from cash at purchase time.)
+    final realized = (price - ep) * qty - fee;
     final cash = (m['cash'] is num) ? (m['cash'] as num).toDouble()
         : kStartingCapital;
     final prevRealized =
         (m['realizedPnl'] is num) ? (m['realizedPnl'] as num).toDouble() : 0;
 
     final updates = <String, Object?>{
-      'cash': cash + proceeds,
+      'cash': cash + netProceeds,
       'realizedPnl': prevRealized + realized,
     };
     if (qty == eq) {
@@ -253,13 +302,14 @@ class PortfolioService {
     }
     await _ref.update(updates);
 
-    // Log the trade with realized P/L.
+    // Log the trade with realized P/L (net of sell fee) and the fee charged.
     await _ref.child('trades').push().set({
       'symbol': symbol,
       'side': 'sell',
       'qty': qty,
       'price': price,
-      'realizedPnl': realized,
+      'realizedPnl': double.parse(realized.toStringAsFixed(2)),
+      'fee': double.parse(fee.toStringAsFixed(2)),
       'ms': DateTime.now().millisecondsSinceEpoch,
     });
   }

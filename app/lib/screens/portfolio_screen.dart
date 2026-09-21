@@ -338,6 +338,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
           final qty = int.tryParse(qtyController.text) ?? 0;
           final price = double.tryParse(priceController.text) ?? 0;
           final cost = qty * price;
+          final buyFee = Fees.forTrade(isBuy: true, turnover: cost);
           return AlertDialog(
             title: const Text('Buy any stock'),
             content: SingleChildScrollView(
@@ -378,6 +379,13 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                   const SizedBox(height: 8),
                   Text('Estimated cost: ₹${cost.toStringAsFixed(2)}',
                       style: const TextStyle(fontWeight: FontWeight.bold)),
+                  if (cost > 0)
+                    Text(
+                      'Fees ≈ ₹${buyFee.toStringAsFixed(2)}  ·  '
+                      'Total ₹${(cost + buyFee).toStringAsFixed(2)}',
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
                   const SizedBox(height: 4),
                   const Text(
                     'You enter the symbol and price yourself. Paper trade — '
@@ -938,7 +946,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         return StatefulBuilder(builder: (ctx, setLocal) {
           final qty = int.tryParse(qtyController.text) ?? 0;
           final proceeds = qty * price;
-          final pnl = (price - h.avgPrice) * qty;
+          final sellFee = Fees.forTrade(isBuy: false, turnover: proceeds);
+          final pnl = (price - h.avgPrice) * qty - sellFee;
           return AlertDialog(
             title: Text('Sell ${h.symbol}'),
             content: Column(
@@ -960,8 +969,14 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text('Proceeds: ₹${proceeds.toStringAsFixed(2)}'),
+                if (proceeds > 0)
+                  Text(
+                    'Fees ≈ ₹${sellFee.toStringAsFixed(2)}  ·  '
+                    'Net ₹${(proceeds - sellFee).toStringAsFixed(2)}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
                 Text(
-                    'Realized P/L: ${pnl >= 0 ? '+' : ''}'
+                    'Realized P/L (net of fees): ${pnl >= 0 ? '+' : ''}'
                     '₹${pnl.toStringAsFixed(2)}',
                     style: TextStyle(
                         fontWeight: FontWeight.bold,
