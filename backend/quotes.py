@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import sys
 
 import yfinance as yf
 
@@ -138,12 +139,31 @@ def main():
     quotes = fetch_quotes(symbols)
     if not quotes:
         print("No quotes fetched; skipping quotes write.")
-    else:
-        for sym, q in quotes.items():
-            q["ts"] = now
-        admin_db.reference("stock/quotes").update(quotes)
-        admin_db.reference("stock/quotesAsOf").set(now)
-        print(f"Updated {len(quotes)} quotes at {now}")
+        return
+    for sym, q in quotes.items():
+        q["ts"] = now
+    admin_db.reference("stock/quotes").update(quotes)
+    admin_db.reference("stock/quotesAsOf").set(now)
+    print(f"Updated {len(quotes)} quotes at {now}")
+
+    # ---- Server-side auto-exit on stop-loss / target --------------------
+    # Right after fresh quotes are written, evaluate every paper holding and
+    # auto-sell (full qty) any position whose SL or target was hit. Uses the
+    # just-fetched prices so it fires even when the app is closed.
+    from auto_exit import run_auto_exits
+    price_map = {sym: q["price"] for sym, q in quotes.items()
+                 if isinstance(q.get("price"), (int, float))}
+    dry_run = "--dry-run" in sys.argv
+    try:
+        n = run_auto_exits(price_map, dry_run=dry_run)
+        if n:
+            print(f"Auto-exit: {n} paper position(s) "
+                  f"{'would be' if dry_run else ''} closed on SL/target.")
+        else:
+            print("Auto-exit: no SL/target triggers this cycle.")
+    except Exception as e:
+        # Never let an auto-exit error break the quotes job.
+        print(f"Auto-exit error (quotes still updated): {e}")
 
 
 if __name__ == "__main__":
