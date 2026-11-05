@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/portfolio_service.dart';
@@ -18,6 +20,26 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
 
   final Map<String, ({double last, double prev})> _prices = {};
   bool _pricesLoading = false;
+
+  // Live /stock/quotes listener so prices update every backend refresh.
+  StreamSubscription? _quotesSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _quotesSub = _stock.quotesStream().listen((q) {
+      if (!mounted || q.isEmpty) return;
+      setState(() {
+        q.forEach((s, v) => _prices[s] = (last: v.price, prev: v.prevClose));
+      });
+    }, onError: (_) {});
+  }
+
+  @override
+  void dispose() {
+    _quotesSub?.cancel();
+    super.dispose();
+  }
 
   Future<void> _loadPrices(List<String> symbols) async {
     final missing = symbols.where((s) => !_prices.containsKey(s)).toList();

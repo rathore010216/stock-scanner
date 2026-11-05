@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
@@ -60,10 +62,36 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   // Index strip (NIFTY / SENSEX).
   Map<String, ({double price, double prevClose})> _indices = {};
 
+  // Live listeners on /stock/quotes and /stock/indices (backend refreshes
+  // them every ~2 min in market hours).
+  StreamSubscription? _quotesSub;
+  StreamSubscription? _indicesSub;
+  List<Holding> _holdings = const [];
+
   @override
   void initState() {
     super.initState();
     _loadIndices();
+    _quotesSub = _stock.quotesStream().listen(_onQuotes, onError: (_) {});
+    _indicesSub = _stock.indicesStream().listen((idx) {
+      if (mounted && idx.isNotEmpty) setState(() => _indices = idx);
+    }, onError: (_) {});
+  }
+
+  @override
+  void dispose() {
+    _quotesSub?.cancel();
+    _indicesSub?.cancel();
+    super.dispose();
+  }
+
+  /// Merge a live quotes update into [_prices] and re-check SL/target alerts.
+  void _onQuotes(Map<String, ({double price, double prevClose})> q) {
+    if (!mounted || q.isEmpty) return;
+    setState(() {
+      q.forEach((s, v) => _prices[s] = (last: v.price, prev: v.prevClose));
+    });
+    _checkAlerts(_holdings);
   }
 
   Future<void> _loadIndices() async {
@@ -80,12 +108,19 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   final Set<String> _notifiedTarget = {};
 
   Future<void> _loadPrices(List<Holding> holdings) async {
+    _holdings = holdings;
+    // Only fetch symbols we don't have yet (live quotes fill most of them).
+    // Returning early also avoids a setState -> rebuild -> _loadPrices loop.
+    final missing =
+        holdings.where((h) => !_prices.containsKey(h.symbol)).toList();
+    if (missing.isEmpty) {
+      _checkAlerts(holdings);
+      return;
+    }
     setState(() => _pricesLoading = true);
-    for (final h in holdings) {
-      if (!_prices.containsKey(h.symbol)) {
-        final p = await _stock.lastTwoCloses(h.symbol);
-        if (p != null) _prices[h.symbol] = p;
-      }
+    for (final h in missing) {
+      final p = await _stock.lastTwoCloses(h.symbol);
+      if (p != null) _prices[h.symbol] = p;
     }
     if (mounted) setState(() => _pricesLoading = false);
     _checkAlerts(holdings);
@@ -309,7 +344,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                 ..._sortedHoldings(p.holdings).map((h) => _holdingTile(h)),
                 const SizedBox(height: 16),
                 const Text(
-                  'Paper trading · prices at last close · not real money · '
+                  'Paper trading · prices refresh ~every 2 min in market hours · '
+                  'not real money · '
                   'not investment advice.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: Colors.grey),

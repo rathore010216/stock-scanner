@@ -109,15 +109,38 @@ class StockService {
   /// Names are like 'NIFTY', 'SENSEX'.
   Future<Map<String, ({double price, double prevClose})>> fetchIndices() async {
     final snap = await _db.child('stock/indices').get();
+    return _parsePriceMap(snap.value);
+  }
+
+  // ---- Live streams --------------------------------------------------------
+  // The backend refreshes /stock/quotes and /stock/indices every ~2 min during
+  // market hours. These listen so the UI updates without a manual reload.
+
+  /// Live symbol -> (price, prevClose) from /stock/quotes.
+  Stream<Map<String, ({double price, double prevClose})>> quotesStream() =>
+      _db.child('stock/quotes').onValue.map((e) => _parsePriceMap(e.snapshot.value));
+
+  /// Live last-refresh time (ISO string) from /stock/quotesAsOf.
+  Stream<String?> quotesAsOfStream() => _db
+      .child('stock/quotesAsOf')
+      .onValue
+      .map((e) => e.snapshot.value?.toString());
+
+  /// Live NIFTY/SENSEX strip from /stock/indices.
+  Stream<Map<String, ({double price, double prevClose})>> indicesStream() =>
+      _db.child('stock/indices').onValue.map((e) => _parsePriceMap(e.snapshot.value));
+
+  static Map<String, ({double price, double prevClose})> _parsePriceMap(
+      Object? value) {
     final out = <String, ({double price, double prevClose})>{};
-    if (snap.exists && snap.value is Map) {
-      (snap.value as Map).forEach((k, v) {
+    if (value is Map) {
+      value.forEach((k, v) {
         if (v is Map && v['price'] is num) {
           final price = (v['price'] as num).toDouble();
           final prev = (v['prevClose'] is num)
               ? (v['prevClose'] as num).toDouble()
               : price;
-          out[k as String] = (price: price, prevClose: prev);
+          out[k.toString()] = (price: price, prevClose: prev);
         }
       });
     }
