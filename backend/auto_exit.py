@@ -134,10 +134,15 @@ def _apply_exits_txn(current, quotes: dict, now_ms: int, now_iso: str,
     return current
 
 
-def run_auto_exits(quotes: dict, dry_run: bool = False) -> int:
+def run_auto_exits(quotes: dict, dry_run: bool = False,
+                   portfolios: dict | None = None) -> int:
     """Evaluate all portfolios against `quotes` ({symbol: price}) and execute
     SL/target exits. Returns the number of exits performed. Requires
     firebase_admin to be initialized by the caller (quotes.py does this).
+
+    `portfolios` may be passed in (a fresh snapshot of /portfolios) to avoid a
+    second full read per cycle; it is only used for the cheap pre-check — the
+    actual exit still runs inside a transaction on live data.
     """
     from firebase_admin import db as admin_db
 
@@ -145,7 +150,8 @@ def run_auto_exits(quotes: dict, dry_run: bool = False) -> int:
     now_ms = int(now.timestamp() * 1000)
     now_iso = now.isoformat()
 
-    portfolios = admin_db.reference("portfolios").get()
+    if portfolios is None:
+        portfolios = admin_db.reference("portfolios").get()
     if not isinstance(portfolios, dict):
         return 0
 

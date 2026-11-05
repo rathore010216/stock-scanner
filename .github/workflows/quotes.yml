@@ -1,17 +1,36 @@
 name: Intraday quote refresh
 
-# Refreshes latest prices (matched + held symbols) ~every 30 min during NSE
-# market hours (09:15-15:30 IST = 03:45-10:00 UTC), weekdays. Lightweight.
-# NOTE: GitHub cron timing is approximate and can be delayed under load.
+# Refreshes latest prices (matched + held symbols) + NIFTY/SENSEX every ~2 min
+# during NSE market hours (09:15-15:30 IST = 03:45-10:00 UTC), weekdays.
+#
+# Instead of a cron per refresh (GitHub cron is min 5 min and often delayed
+# 5-20 min), each run is ONE long job that loops inside quotes.py --loop until
+# 10:05 UTC or 345 min, whichever comes first (jobs are killed at 360 min).
+# The session (~6h20m incl. buffer) is longer than one job, so there are two
+# triggers. The concurrency group QUEUES the second run behind the first
+# (no cancellation, so an in-flight auto-exit is never killed mid-write): run 1
+# ends at its 345-min cap and run 2 picks up until close.
+#
+# Free: the repo is public, so standard GitHub-hosted runner minutes are free.
 on:
   schedule:
-    # Every 30 min from 03:30 to 10:30 UTC (buffer around NSE hours), Mon-Fri.
-    - cron: "0,30 3-10 * * 1-5"
+    - cron: "35 3 * * 1-5"   # 09:05 IST - main session
+    - cron: "50 6 * * 1-5"   # 12:20 IST - queued follow-on until close
   workflow_dispatch:
+    inputs:
+      loop:
+        description: "Loop until market close (false = single refresh)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: intraday-quotes
+  cancel-in-progress: false
 
 jobs:
   quotes:
     runs-on: ubuntu-latest
+    timeout-minutes: 355
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,4 +46,11 @@ jobs:
         env:
           FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: python quotes.py
+          QUOTES_INTERVAL_SEC: "120"
+          PYTHONUNBUFFERED: "1"
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.loop }}" != "true" ]; then
+            python quotes.py
+          else
+            python quotes.py --loop
+          fi
