@@ -60,6 +60,13 @@ class StockService {
     return ChartData.fromMap(snap.value as Map);
   }
 
+  /// Fetch one symbol's financials on demand (null if not published yet).
+  Future<Fundamentals?> fetchFundamentals(String symbol) async {
+    final snap = await _db.child('stock/fundamentals/$symbol').get();
+    if (!snap.exists || snap.value is! Map) return null;
+    return Fundamentals.fromMap(snap.value as Map);
+  }
+
   /// Latest close + previous close for a symbol (for portfolio P/L + day P/L).
   /// Prefers the fresher intraday quote (/stock/quotes) if available, else
   /// falls back to the daily chart's last two closes.

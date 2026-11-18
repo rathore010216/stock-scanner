@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/portfolio_service.dart';
 import '../services/stock_service.dart';
+import '../widgets/updated_at.dart';
 import 'chart_screen.dart';
 
 /// A simple watchlist — track symbols without paper-buying them.
@@ -101,10 +102,16 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
               await _loadPrices(symbols);
             },
             child: ListView.separated(
-              itemCount: items.length,
+              itemCount: items.length + 1,
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (context, i) {
-                final item = items[i];
+                if (i == 0) {
+                  return const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+                    child: UpdatedAtLabel(),
+                  );
+                }
+                final item = items[i - 1];
                 final s = item.symbol;
                 final px = _prices[s];
                 final last = px?.last;

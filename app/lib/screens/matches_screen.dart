@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/stock_data.dart';
 import '../services/stock_service.dart';
 import '../services/portfolio_service.dart';
+import '../widgets/updated_at.dart';
 import 'chart_screen.dart';
 
 /// Human-friendly labels for screener keys.
@@ -41,22 +42,11 @@ class _MatchesScreenState extends State<MatchesScreen> {
   Map<String, double> _quotes = {};
   String? _quotesAsOf;
   StreamSubscription? _quotesSub;
-  StreamSubscription? _quotesAsOfSub;
 
   @override
   void dispose() {
     _quotesSub?.cancel();
-    _quotesAsOfSub?.cancel();
     super.dispose();
-  }
-
-  /// Local HH:mm of the last quote refresh, e.g. "14:32", or null.
-  String? get _quotesAsOfLabel {
-    final t = _quotesAsOf == null ? null : DateTime.tryParse(_quotesAsOf!);
-    if (t == null) return null;
-    final l = t.toLocal();
-    return '${l.hour.toString().padLeft(2, '0')}:'
-        '${l.minute.toString().padLeft(2, '0')}';
   }
 
   /// After the first Load, keep live prices flowing from /stock/quotes.
@@ -64,9 +54,6 @@ class _MatchesScreenState extends State<MatchesScreen> {
     _quotesSub ??= _service.quotesStream().listen((q) {
       if (!mounted || q.isEmpty) return;
       setState(() => _quotes = {for (final e in q.entries) e.key: e.value.price});
-    }, onError: (_) {});
-    _quotesAsOfSub ??= _service.quotesAsOfStream().listen((t) {
-      if (mounted) setState(() => _quotesAsOf = t);
     }, onError: (_) {});
   }
 
@@ -221,15 +208,17 @@ class _MatchesScreenState extends State<MatchesScreen> {
             children: [
               Text(_asOf != null ? 'As of $_asOf close' : 'No data',
                   style: Theme.of(context).textTheme.bodySmall),
-              if (_quotesAsOfLabel != null) ...[
-                const SizedBox(width: 8),
-                Text('· prices $_quotesAsOfLabel',
-                    style: Theme.of(context).textTheme.bodySmall),
-              ],
               const Spacer(),
               Text('${filtered.length} matches',
                   style: Theme.of(context).textTheme.bodySmall),
             ],
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(12, 2, 12, 0),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: UpdatedAtLabel(),
           ),
         ),
         // Screener toggle chips.

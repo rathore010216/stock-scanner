@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/portfolio_service.dart';
 import '../services/stock_service.dart';
 import '../services/notification_service.dart';
+import '../widgets/updated_at.dart';
 import 'chart_screen.dart';
 import 'trade_log_screen.dart';
 import 'performance_screen.dart';
@@ -294,6 +295,10 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             child: ListView(
               padding: const EdgeInsets.all(12),
               children: [
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 6),
+                  child: UpdatedAtLabel(),
+                ),
                 if (_indices.isNotEmpty) ...[
                   _indexStrip(),
                   const SizedBox(height: 10),
