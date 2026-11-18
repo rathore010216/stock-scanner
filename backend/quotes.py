@@ -191,6 +191,15 @@ def run_cycle(dry_run: bool = False) -> tuple[int, dt.date | None]:
     except Exception as e:
         # Never let an auto-exit error break the quotes job.
         print(f"Auto-exit error (quotes still updated): {e}")
+
+    # ---- Financials for the chart screen's Financials tab ----------------
+    # A few missing/week-old symbols per cycle (cheap index read). Never let
+    # it break the quotes job.
+    try:
+        from fundamentals import refresh_fundamentals
+        refresh_fundamentals(symbols)
+    except Exception as e:
+        print(f"Fundamentals error (quotes still updated): {e}")
     return len(quotes), idx_date
 
 
