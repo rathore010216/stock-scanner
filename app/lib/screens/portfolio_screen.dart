@@ -7,7 +7,7 @@ import '../services/portfolio_service.dart';
 import '../services/stock_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/updated_at.dart';
-import 'chart_screen.dart';
+import '../widgets/responsive.dart';
 import 'trade_log_screen.dart';
 import 'performance_screen.dart';
 
@@ -661,9 +661,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               ],
             ),
             // Tap the row to view the stock's chart/data.
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => ChartScreen(symbol: h.symbol),
-            )),
+            selected: StockDetailScope.selectedSymbol(context) == h.symbol,
+            onTap: () => openStock(context, h.symbol),
           ),
           // SL/Target badges + set button.
           Padding(

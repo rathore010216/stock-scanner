@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/stock_data.dart';
 import '../services/portfolio_service.dart';
 import '../services/stock_service.dart';
+import '../widgets/responsive.dart';
 import '../widgets/updated_at.dart';
 import 'matches_screen.dart' show screenerLabels;
 
@@ -14,7 +15,10 @@ class ChartScreen extends StatefulWidget {
   /// Screener keys that flagged this stock, when the caller already knows
   /// them (Screener tab). Otherwise they're looked up from the latest scan.
   final List<String>? triggered;
-  const ChartScreen({super.key, required this.symbol, this.triggered});
+  /// Set when shown in the desktop web side pane: adds a close (X) button.
+  final VoidCallback? onClose;
+  const ChartScreen(
+      {super.key, required this.symbol, this.triggered, this.onClose});
 
   @override
   State<ChartScreen> createState() => _ChartScreenState();
@@ -122,6 +126,15 @@ class _ChartScreenState extends State<ChartScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(widget.symbol),
+          automaticallyImplyLeading: widget.onClose == null,
+          actions: [
+            if (widget.onClose != null)
+              IconButton(
+                tooltip: 'Close',
+                icon: const Icon(Icons.close),
+                onPressed: widget.onClose,
+              ),
+          ],
           bottom: const TabBar(tabs: [
             Tab(text: 'Chart'),
             Tab(text: 'Financials'),
@@ -238,34 +251,35 @@ class _ChartScreenState extends State<ChartScreen> {
       if (h?.target != null) (h!.target!, Colors.green.shade600),
     ].where((l) => l.$1 >= minY && l.$1 <= maxY).toList();
 
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        const UpdatedAtLabel(),
-        if (full.dates.isNotEmpty)
-          Text('Chart data to ${full.dates.last} close',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Colors.grey.shade700)),
+    final topSection = <Widget>[
+      const UpdatedAtLabel(),
+      if (full.dates.isNotEmpty)
+        Text('Chart data to ${full.dates.last} close',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: Colors.grey.shade700)),
+      const SizedBox(height: 8),
+      _summaryHeader(full),
+      if (_triggered.isNotEmpty) ...[
         const SizedBox(height: 8),
-        _summaryHeader(full),
-        if (_triggered.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          _tagsRow(),
-        ],
-        if (full.stats != null && full.stats!.returns.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          _panelTitle('Returns'),
-          _returnsRow(full.stats!.returns),
-        ],
+        _tagsRow(),
+      ],
+      if (full.stats != null && full.stats!.returns.isNotEmpty) ...[
         const SizedBox(height: 12),
-        _positionCard(full),
-        const SizedBox(height: 12),
+        _panelTitle('Returns'),
+        _returnsRow(full.stats!.returns),
+      ],
+      const SizedBox(height: 12),
+      _positionCard(full),
+      const SizedBox(height: 12),
+    ];
+
+    final chartSection = <Widget>[
         _rangeSelector(),
         _panelTitle('Price · EMA50 · EMA200 · Bollinger'),
         _lineChart(
-          height: 260,
+          height: isWideWeb(context) ? 420 : 260,
           lines: [
             _line(_spots(d.bbUpper), Colors.grey.shade400, width: 1),
             _line(_spots(d.bbLower), Colors.grey.shade400, width: 1),
@@ -324,8 +338,33 @@ class _ChartScreenState extends State<ChartScreen> {
           dates: d.dates,
         ),
         const SizedBox(height: 24),
-      ],
-    );
+    ];
+
+    // Desktop web with a wide pane: summary/position on the left, charts on
+    // the right, each scrolling on its own. Phone: one column, as before.
+    return LayoutBuilder(builder: (context, box) {
+      if (isWideWeb(context) && box.maxWidth >= 900) {
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 360,
+              child: ListView(
+                  padding: const EdgeInsets.all(12), children: topSection),
+            ),
+            const VerticalDivider(width: 1),
+            Expanded(
+              child: ListView(
+                  padding: const EdgeInsets.all(12), children: chartSection),
+            ),
+          ],
+        );
+      }
+      return ListView(
+        padding: const EdgeInsets.all(12),
+        children: [...topSection, ...chartSection],
+      );
+    });
   }
 
   Widget _panelTitle(String t) => Padding(
@@ -1057,7 +1096,9 @@ class _ChartScreenState extends State<ChartScreen> {
 
   Widget _statsGrid(List<(String, String, Color?)> items) {
     return LayoutBuilder(builder: (context, box) {
-      final w = (box.maxWidth - 8) / 2;
+      // Web on a wide area gets 4 columns; the phone always gets 2.
+      final cols = (isWideWeb(context) && box.maxWidth >= 640) ? 4 : 2;
+      final w = (box.maxWidth - 8 * (cols - 1)) / cols;
       return Wrap(
         spacing: 8,
         runSpacing: 8,

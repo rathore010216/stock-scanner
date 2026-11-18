@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'firebase_web_options.dart';
+import 'widgets/responsive.dart' show kWideBreakpoint;
 import 'screens/login_screen.dart';
 import 'screens/home_shell.dart';
 import 'services/notification_service.dart';
@@ -61,15 +62,17 @@ class StockApp extends StatelessWidget {
         colorSchemeSeed: const Color(0xFF1565C0),
         useMaterial3: true,
       ),
-      // On a wide laptop screen, keep the phone layout readable by capping
-      // the width and centring it. Phones are unaffected.
-      builder: (context, child) => !kIsWeb
+      // Web: wide windows get the desktop layout (HomeShell); narrower ones
+      // keep the phone layout, centred and capped so it stays readable.
+      // Phones are unaffected.
+      builder: (context, child) => !kIsWeb ||
+              MediaQuery.sizeOf(context).width >= kWideBreakpoint
           ? child!
           : ColoredBox(
               color: Colors.grey.shade200,
               child: Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 900),
+                  constraints: const BoxConstraints(maxWidth: 700),
                   child: child,
                 ),
               ),

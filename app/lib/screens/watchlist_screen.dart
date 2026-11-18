@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../services/portfolio_service.dart';
 import '../services/stock_service.dart';
 import '../widgets/updated_at.dart';
-import 'chart_screen.dart';
+import '../widgets/responsive.dart';
 
 /// A simple watchlist — track symbols without paper-buying them.
 class WatchlistScreen extends StatefulWidget {
@@ -162,10 +162,9 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
                           ),
                         ],
                       ),
-                      onTap: () =>
-                          Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => ChartScreen(symbol: s),
-                      )),
+                      selected:
+                          StockDetailScope.selectedSymbol(context) == s,
+                      onTap: () => openStock(context, s),
                     ),
                     // Note row — same affordance as portfolio holdings.
                     InkWell(

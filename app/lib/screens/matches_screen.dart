@@ -5,7 +5,7 @@ import '../models/stock_data.dart';
 import '../services/stock_service.dart';
 import '../services/portfolio_service.dart';
 import '../widgets/updated_at.dart';
-import 'chart_screen.dart';
+import '../widgets/responsive.dart';
 
 /// Human-friendly labels for screener keys.
 const screenerLabels = {
@@ -396,9 +396,9 @@ class _MatchTile extends StatelessWidget {
           ),
         ],
       ),
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ChartScreen(symbol: match.symbol, triggered: match.triggered),
-      )),
+      selected: StockDetailScope.selectedSymbol(context) == match.symbol,
+      onTap: () =>
+          openStock(context, match.symbol, triggered: match.triggered),
     );
   }
 
