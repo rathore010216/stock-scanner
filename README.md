@@ -17,16 +17,16 @@ costs; use it to surface candidates for your own chart-based judgment.
   MACD, RSI) via fl_chart.
 - Cloud-built APK via `.github/workflows/build-apk.yml`.
 
-Everything runs on the Firebase Spark (free) plan, shared with the family-locator
-project but namespaced under `/stock/`.
+Everything runs on the Firebase Spark (free) plan in its own Firebase project,
+`stock-scanner-a4418` (data under `/stock/` and `/portfolios/`).
 
 ## One-time setup (Firebase + GitHub)
-1. In Firebase (family-locator project) → **Authentication → Anonymous → Enable**.
+1. In Firebase (stock-scanner project) → **Authentication → Anonymous → Enable**.
 2. Add the `/stock` rules from `FIREBASE_RULES.md` to the database rules.
 3. Get a **Database secret**: Firebase → Project settings → Service accounts →
    Database secrets.
 4. In the GitHub repo → Settings → Secrets and variables → Actions, add:
-   - `FIREBASE_DB_URL` = `https://family-locator-a5106-default-rtdb.firebaseio.com`
+   - `FIREBASE_DB_URL` = `https://stock-scanner-a4418-default-rtdb.firebaseio.com`
    - `FIREBASE_DB_SECRET` = the database secret
    - `GOOGLE_SERVICES_JSON` = full contents of the stockanalysis app's
      `google-services.json`

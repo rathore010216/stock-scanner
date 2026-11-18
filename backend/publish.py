@@ -17,7 +17,7 @@ Output structure in RTDB:
 Writes via RTDB REST API using FIREBASE_DB_URL + FIREBASE_DB_SECRET env vars.
 
 Env:
-  FIREBASE_DB_URL   e.g. https://family-locator-a5106-default-rtdb.firebaseio.com
+  FIREBASE_DB_URL   e.g. https://stock-scanner-a4418-default-rtdb.firebaseio.com
   FIREBASE_DB_SECRET  a database secret (legacy token) OR omitted if rules allow
 """
 from __future__ import annotations

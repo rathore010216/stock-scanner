@@ -8,11 +8,11 @@ const _apiKey = String.fromEnvironment('FB_API_KEY');
 const _appId = String.fromEnvironment('FB_APP_ID');
 const _senderId = String.fromEnvironment('FB_MESSAGING_SENDER_ID');
 const _projectId =
-    String.fromEnvironment('FB_PROJECT_ID', defaultValue: 'family-locator-a5106');
+    String.fromEnvironment('FB_PROJECT_ID', defaultValue: 'stock-scanner-a4418');
 const _authDomain = String.fromEnvironment('FB_AUTH_DOMAIN',
-    defaultValue: 'family-locator-a5106.firebaseapp.com');
+    defaultValue: 'stock-scanner-a4418.firebaseapp.com');
 const _databaseUrl = String.fromEnvironment('FB_DATABASE_URL',
-    defaultValue: 'https://family-locator-a5106-default-rtdb.firebaseio.com');
+    defaultValue: 'https://stock-scanner-a4418-default-rtdb.firebaseio.com');
 const _storageBucket = String.fromEnvironment('FB_STORAGE_BUCKET');
 
 /// True when the build was given the web app's apiKey + appId.
