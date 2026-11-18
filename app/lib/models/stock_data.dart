@@ -30,12 +30,54 @@ class StockMatch {
   }
 }
 
+/// Summary numbers computed by the backend from the full 2-year history.
+class ChartStats {
+  final Map<String, double> returns; // '1W','1M','3M','6M','1Y' -> %
+  final double? high52, low52, pctFromHigh52, atrPct, volVsAvg, adx;
+  final bool? aboveEma50, aboveEma200;
+
+  const ChartStats({
+    this.returns = const {},
+    this.high52,
+    this.low52,
+    this.pctFromHigh52,
+    this.atrPct,
+    this.volVsAvg,
+    this.adx,
+    this.aboveEma50,
+    this.aboveEma200,
+  });
+
+  static double? _n(dynamic v) => v is num ? v.toDouble() : null;
+
+  factory ChartStats.fromMap(Map<dynamic, dynamic> m) {
+    final r = <String, double>{};
+    if (m['returns'] is Map) {
+      (m['returns'] as Map).forEach((k, v) {
+        if (v is num) r[k.toString()] = v.toDouble();
+      });
+    }
+    return ChartStats(
+      returns: r,
+      high52: _n(m['high52']),
+      low52: _n(m['low52']),
+      pctFromHigh52: _n(m['pctFromHigh52']),
+      atrPct: _n(m['atrPct']),
+      volVsAvg: _n(m['volVsAvg']),
+      adx: _n(m['adx']),
+      aboveEma50: m['aboveEma50'] is bool ? m['aboveEma50'] as bool : null,
+      aboveEma200: m['aboveEma200'] is bool ? m['aboveEma200'] as bool : null,
+    );
+  }
+}
+
 /// Per-symbol chart series from /stock/charts/{symbol}.
 class ChartData {
   final List<String> dates;
   final List<double?> close, ema50, ema200, bbUpper, bbLower;
   final List<double?> macd, macdSignal, macdHist, rsi, volAvg20;
   final List<double?> volume;
+  final ChartStats? stats; // null for charts published before stats existed
 
   const ChartData({
     required this.dates,
@@ -50,6 +92,7 @@ class ChartData {
     required this.rsi,
     required this.volAvg20,
     required this.volume,
+    this.stats,
   });
 
   static List<double?> _nums(dynamic v) {
@@ -86,6 +129,7 @@ class ChartData {
       rsi: _nums(m['rsi']),
       volAvg20: _nums(m['vol_avg20']),
       volume: _nums(m['volume']),
+      stats: m['stats'] is Map ? ChartStats.fromMap(m['stats'] as Map) : null,
     );
   }
 }

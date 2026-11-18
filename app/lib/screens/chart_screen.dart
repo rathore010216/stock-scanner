@@ -1,13 +1,20 @@
+import 'dart:async';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../models/stock_data.dart';
+import '../services/portfolio_service.dart';
 import '../services/stock_service.dart';
 import '../widgets/updated_at.dart';
+import 'matches_screen.dart' show screenerLabels;
 
 class ChartScreen extends StatefulWidget {
   final String symbol;
-  const ChartScreen({super.key, required this.symbol});
+  /// Screener keys that flagged this stock, when the caller already knows
+  /// them (Screener tab). Otherwise they're looked up from the latest scan.
+  final List<String>? triggered;
+  const ChartScreen({super.key, required this.symbol, this.triggered});
 
   @override
   State<ChartScreen> createState() => _ChartScreenState();
@@ -26,11 +33,49 @@ class _ChartScreenState extends State<ChartScreen> {
   bool _finLoading = true;
   String? _finError;
 
+  // Live price (from /stock/quotes), your holding of this stock (if any), and
+  // which screeners flagged it.
+  final _portfolio = PortfolioService();
+  StreamSubscription? _quoteSub, _portfolioSub;
+  ({double price, double prevClose})? _quote;
+  Holding? _holding;
+  double _cash = 0;
+  List<String> _triggered = const [];
+
   @override
   void initState() {
     super.initState();
     _load();
     _loadFinancials();
+    _quoteSub = _service.quotesStream().listen((q) {
+      final v = q[widget.symbol];
+      if (mounted && v != null) setState(() => _quote = v);
+    }, onError: (_) {});
+    _portfolioSub = _portfolio.stream().listen((p) {
+      if (!mounted) return;
+      Holding? held;
+      for (final h in p.holdings) {
+        if (h.symbol == widget.symbol && h.qty > 0) held = h;
+      }
+      setState(() {
+        _cash = p.cash;
+        _holding = held;
+      });
+    }, onError: (_) {});
+    if (widget.triggered != null) {
+      _triggered = widget.triggered!;
+    } else {
+      _service.triggeredFor(widget.symbol).then((t) {
+        if (mounted) setState(() => _triggered = t);
+      }).catchError((_) {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _quoteSub?.cancel();
+    _portfolioSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadFinancials() async {
@@ -177,6 +222,22 @@ class _ChartScreenState extends State<ChartScreen> {
       volume: _tail(full.volume, r),
     );
     final n = d.close.length;
+
+    // Price-panel range, widened to include your avg buy price so its line is
+    // always visible. SL/target lines are drawn only if they fall in range.
+    var minY = _min([d.bbLower, d.close, d.ema200]) * 0.99;
+    var maxY = _max([d.bbUpper, d.close]) * 1.01;
+    final h = _holding;
+    if (h != null) {
+      if (h.avgPrice * 0.99 < minY) minY = h.avgPrice * 0.99;
+      if (h.avgPrice * 1.01 > maxY) maxY = h.avgPrice * 1.01;
+    }
+    final levels = <(double, Color)>[
+      if (h != null) (h.avgPrice, Colors.orange.shade700),
+      if (h?.stopLoss != null) (h!.stopLoss!, Colors.red.shade400),
+      if (h?.target != null) (h!.target!, Colors.green.shade600),
+    ].where((l) => l.$1 >= minY && l.$1 <= maxY).toList();
+
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -188,6 +249,19 @@ class _ChartScreenState extends State<ChartScreen> {
                   .bodySmall
                   ?.copyWith(color: Colors.grey.shade700)),
         const SizedBox(height: 8),
+        _summaryHeader(full),
+        if (_triggered.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _tagsRow(),
+        ],
+        if (full.stats != null && full.stats!.returns.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _panelTitle('Returns'),
+          _returnsRow(full.stats!.returns),
+        ],
+        const SizedBox(height: 12),
+        _positionCard(full),
+        const SizedBox(height: 12),
         _rangeSelector(),
         _panelTitle('Price · EMA50 · EMA200 · Bollinger'),
         _lineChart(
@@ -199,18 +273,22 @@ class _ChartScreenState extends State<ChartScreen> {
             _line(_spots(d.ema50), Colors.blue, width: 1.2),
             _line(_spots(d.ema200), Colors.red, width: 1.2),
           ],
-          minY: _min([d.bbLower, d.close, d.ema200]) * 0.99,
-          maxY: _max([d.bbUpper, d.close]) * 1.01,
+          minY: minY,
+          maxY: maxY,
           n: n,
           dates: d.dates,
           valuePrefix: '₹',
           primaryBarIndex: 2, // the Close line
+          levels: levels,
         ),
-        _legend(const {
+        _legend({
           'Close': Colors.black,
           'EMA50': Colors.blue,
           'EMA200': Colors.red,
           'Bollinger': Colors.grey,
+          if (h != null) 'Your avg buy': Colors.orange.shade700,
+          if (h?.stopLoss != null) 'Stop-loss': Colors.red.shade400,
+          if (h?.target != null) 'Target': Colors.green.shade600,
         }),
         const SizedBox(height: 16),
         _panelTitle('Volume · blue = up day, red = down day'),
@@ -276,8 +354,13 @@ class _ChartScreenState extends State<ChartScreen> {
     List<String>? dates, // when provided, tap shows date + value
     String valuePrefix = '',
     int primaryBarIndex = 0, // which line's value to show in the tooltip
+    List<(double, Color)> levels = const [], // dashed price levels (avg/SL/TGT)
   }) {
     final hLines = <HorizontalLine>[];
+    for (final (y, color) in levels) {
+      hLines.add(HorizontalLine(
+          y: y, color: color, strokeWidth: 1.2, dashArray: [6, 4]));
+    }
     if (zeroLine) {
       hLines.add(HorizontalLine(y: 0, color: Colors.black26, strokeWidth: 0.8));
     }
@@ -419,6 +502,371 @@ class _ChartScreenState extends State<ChartScreen> {
           ],
         ),
       );
+
+  // ---------------------------------------------------------------------------
+  // Chart tab: summary header, tags, returns, your position, buy/sell
+  // ---------------------------------------------------------------------------
+
+  static double? _lastNum(List<double?> s, {int back = 0}) {
+    var seen = 0;
+    for (var i = s.length - 1; i >= 0; i--) {
+      if (s[i] != null) {
+        if (seen == back) return s[i];
+        seen++;
+      }
+    }
+    return null;
+  }
+
+  /// Live price if we have a quote, else the chart's last close.
+  ({double price, double prev})? _priceNow(ChartData full) {
+    final q = _quote;
+    if (q != null) return (price: q.price, prev: q.prevClose);
+    final last = _lastNum(full.close);
+    if (last == null) return null;
+    return (price: last, prev: _lastNum(full.close, back: 1) ?? last);
+  }
+
+  Widget _summaryHeader(ChartData full) {
+    final px = _priceNow(full);
+    final st = full.stats;
+    final rsi = _lastNum(full.rsi);
+    final chg = px == null ? null : px.price - px.prev;
+    final chgPct = (px == null || px.prev == 0) ? null : chg! / px.prev * 100;
+    final c = _signColor(chg) ?? Colors.black87;
+
+    Widget chip(String text, Color color) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: color.withValues(alpha: 0.5)),
+          ),
+          child: Text(text,
+              style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+        );
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(px == null ? '—' : '₹${px.price.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                        fontSize: 26, fontWeight: FontWeight.bold)),
+                const SizedBox(width: 10),
+                if (chg != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '${chg >= 0 ? '+' : ''}${chg.toStringAsFixed(2)} '
+                      '(${_pct(chgPct, signed: true)}) today',
+                      style: TextStyle(
+                          color: c, fontWeight: FontWeight.w600, fontSize: 13),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _statsGrid([
+              ('RSI (14)', rsi == null ? '—' : rsi.toStringAsFixed(1),
+                  rsi == null
+                      ? null
+                      : rsi >= 70
+                          ? Colors.red.shade700
+                          : rsi <= 30
+                              ? Colors.green.shade700
+                              : null),
+              ('From 52w high', _pct(st?.pctFromHigh52, signed: true),
+                  _signColor(st?.pctFromHigh52)),
+              ('52-week high', _x(st?.high52, prefix: '₹'), null),
+              ('52-week low', _x(st?.low52, prefix: '₹'), null),
+              ('Volume vs 20d avg', _x(st?.volVsAvg, suffix: '×'), null),
+              ('Daily range (ATR)', _pct(st?.atrPct), null),
+            ]),
+            if (st?.aboveEma50 != null ||
+                st?.aboveEma200 != null ||
+                st?.adx != null) ...[
+              const SizedBox(height: 10),
+              Wrap(spacing: 6, runSpacing: 6, children: [
+                if (st?.aboveEma50 != null)
+                  chip(st!.aboveEma50! ? 'Above EMA50' : 'Below EMA50',
+                      st.aboveEma50! ? Colors.green.shade700 : Colors.red.shade700),
+                if (st?.aboveEma200 != null)
+                  chip(st!.aboveEma200! ? 'Above EMA200' : 'Below EMA200',
+                      st.aboveEma200! ? Colors.green.shade700 : Colors.red.shade700),
+                if (st?.adx != null)
+                  chip(
+                      'ADX ${st!.adx!.toStringAsFixed(0)} · '
+                      '${st.adx! >= 25 ? 'strong trend' : st.adx! < 20 ? 'weak / choppy' : 'moderate'}',
+                      st.adx! >= 25 ? Colors.blue.shade700 : Colors.grey.shade700),
+              ]),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _tagsRow() => Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          const Text('Flagged by:',
+              style: TextStyle(fontSize: 12, color: Colors.grey)),
+          for (final t in _triggered)
+            Chip(
+              label: Text(screenerLabels[t] ?? t,
+                  style: const TextStyle(fontSize: 11)),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: EdgeInsets.zero,
+            ),
+        ],
+      );
+
+  Widget _returnsRow(Map<String, double> returns) {
+    const order = ['1W', '1M', '3M', '6M', '1Y'];
+    return Row(
+      children: [
+        for (final k in order)
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                color: (_signColor(returns[k]) ?? Colors.grey)
+                    .withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Column(
+                children: [
+                  Text(k,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  const SizedBox(height: 2),
+                  Text(_pct(returns[k], signed: true),
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: _signColor(returns[k]))),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _positionCard(ChartData full) {
+    final px = _priceNow(full);
+    final h = _holding;
+    final buyBtn = FilledButton.icon(
+      onPressed: px == null ? null : () => _showBuy(px.price),
+      icon: const Icon(Icons.add_shopping_cart, size: 18),
+      label: const Text('Buy'),
+    );
+    if (h == null) {
+      return Row(children: [
+        const Expanded(
+          child: Text("You don't hold this stock.",
+              style: TextStyle(color: Colors.grey)),
+        ),
+        buyBtn,
+      ]);
+    }
+    final price = px?.price ?? h.avgPrice;
+    final prev = px?.prev ?? price;
+    final value = h.qty * price;
+    final pnl = (price - h.avgPrice) * h.qty;
+    final pnlPct = h.avgPrice > 0 ? (price - h.avgPrice) / h.avgPrice * 100 : 0.0;
+    final dayPnl = (price - prev) * h.qty;
+    String money(double v) => '${v >= 0 ? '+' : '-'}₹${_inr(v.abs(), decimals: 2)}';
+    return Card(
+      margin: EdgeInsets.zero,
+      color: Colors.orange.withValues(alpha: 0.05),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('YOUR POSITION',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey)),
+            const SizedBox(height: 6),
+            Text('${h.qty} shares @ avg ₹${h.avgPrice.toStringAsFixed(2)}  ·  '
+                'value ₹${_inr(value, decimals: 2)}'),
+            const SizedBox(height: 4),
+            Text('P/L ${money(pnl)} (${_pct(pnlPct, signed: true)})',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, color: _signColor(pnl))),
+            Text("Today ${money(dayPnl)}",
+                style: TextStyle(fontSize: 12, color: _signColor(dayPnl))),
+            if (h.stopLoss != null || h.target != null)
+              Text(
+                [
+                  if (h.stopLoss != null) 'SL ₹${h.stopLoss!.toStringAsFixed(2)}',
+                  if (h.target != null) 'Target ₹${h.target!.toStringAsFixed(2)}',
+                ].join('  ·  '),
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            const SizedBox(height: 8),
+            Row(children: [
+              buyBtn,
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                onPressed: () => _showSell(h, price),
+                icon: const Icon(Icons.sell_outlined, size: 18),
+                label: const Text('Sell'),
+              ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _snack(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+  }
+
+  Future<void> _showBuy(double lastPrice) async {
+    final priceCtl = TextEditingController(text: lastPrice.toStringAsFixed(2));
+    final qtyCtl = TextEditingController(text: '1');
+    final result = await showDialog<({int qty, double price})>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) {
+        final qty = int.tryParse(qtyCtl.text) ?? 0;
+        final price = double.tryParse(priceCtl.text) ?? 0;
+        final cost = qty * price;
+        final fee = Fees.forTrade(isBuy: true, turnover: cost);
+        return AlertDialog(
+          title: Text('Buy ${widget.symbol}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: priceCtl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'Buy price (₹)',
+                    helperText: 'last ₹${lastPrice.toStringAsFixed(2)}',
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setLocal(() {}),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: qtyCtl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Quantity (whole shares)',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setLocal(() {}),
+                ),
+                const SizedBox(height: 8),
+                Text('Cost ₹${cost.toStringAsFixed(2)} + fees ≈ '
+                    '₹${fee.toStringAsFixed(2)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text('Cash available ₹${_inr(_cash, decimals: 2)}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: (qty > 0 && price > 0)
+                  ? () => Navigator.pop(ctx, (qty: qty, price: price))
+                  : null,
+              child: const Text('Buy'),
+            ),
+          ],
+        );
+      }),
+    );
+    if (result == null) return;
+    try {
+      await _portfolio.buy(widget.symbol, result.qty, result.price);
+      _snack('Bought ${result.qty} ${widget.symbol} @ '
+          '₹${result.price.toStringAsFixed(2)}');
+    } catch (e) {
+      _snack(e is StateError ? e.message : 'Buy failed');
+    }
+  }
+
+  Future<void> _showSell(Holding h, double price) async {
+    final qtyCtl = TextEditingController(text: '${h.qty}');
+    final qty = await showDialog<int>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) {
+        final q = int.tryParse(qtyCtl.text) ?? 0;
+        final proceeds = q * price;
+        final fee = Fees.forTrade(isBuy: false, turnover: proceeds);
+        final pnl = (price - h.avgPrice) * q - fee;
+        return AlertDialog(
+          title: Text('Sell ${h.symbol}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('You hold ${h.qty} @ avg ₹${h.avgPrice.toStringAsFixed(2)}'),
+              Text('Sell price: ₹${price.toStringAsFixed(2)}'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: qtyCtl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Quantity to sell',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => setLocal(() {}),
+              ),
+              const SizedBox(height: 8),
+              Text('Proceeds ₹${proceeds.toStringAsFixed(2)} − fees ≈ '
+                  '₹${fee.toStringAsFixed(2)}'),
+              Text(
+                  'Realized P/L: ${pnl >= 0 ? '+' : ''}₹${pnl.toStringAsFixed(2)}',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: pnl >= 0 ? Colors.green : Colors.red)),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: (q > 0 && q <= h.qty) ? () => Navigator.pop(ctx, q) : null,
+              child: const Text('Sell'),
+            ),
+          ],
+        );
+      }),
+    );
+    if (qty == null) return;
+    try {
+      await _portfolio.sell(h.symbol, qty, price);
+      _snack('Sold $qty ${h.symbol}');
+    } catch (e) {
+      _snack(e is StateError ? e.message : 'Sell failed');
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Financials tab

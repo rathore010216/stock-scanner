@@ -397,7 +397,7 @@ class _MatchTile extends StatelessWidget {
         ],
       ),
       onTap: () => Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ChartScreen(symbol: match.symbol),
+        builder: (_) => ChartScreen(symbol: match.symbol, triggered: match.triggered),
       )),
     );
   }

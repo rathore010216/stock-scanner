@@ -60,6 +60,20 @@ class StockService {
     return ChartData.fromMap(snap.value as Map);
   }
 
+  /// Screener keys that flagged [symbol] in the latest scan (empty if none).
+  Future<List<String>> triggeredFor(String symbol) async {
+    final snap = await _db.child('stock/latest/matches').get();
+    final v = snap.value;
+    if (v is List) {
+      for (final m in v) {
+        if (m is Map && m['symbol'] == symbol && m['triggered'] is List) {
+          return [for (final t in m['triggered'] as List) if (t != null) t.toString()];
+        }
+      }
+    }
+    return const [];
+  }
+
   /// Fetch one symbol's financials on demand (null if not published yet).
   Future<Fundamentals?> fetchFundamentals(String symbol) async {
     final snap = await _db.child('stock/fundamentals/$symbol').get();
