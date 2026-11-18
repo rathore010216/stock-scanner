@@ -1,0 +1,115 @@
+name: Build web app
+
+# Builds the same Flutter app for the browser and publishes it to GitHub Pages:
+#   https://rathore010216.github.io/stock-scanner/
+# The Android APK build is separate and unchanged.
+#
+# Needs (one-time):
+#   - secret FIREBASE_WEB_CONFIG = the firebaseConfig block of a WEB app
+#     registered in the Firebase project (JS object or JSON, pasted as-is)
+#   - Settings -> Pages -> Source = "GitHub Actions"
+#   - Firebase Auth authorized domain: rathore010216.github.io
+# Without the secret the build is skipped with a warning (no failure).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/build-web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    outputs:
+      configured: ${{ steps.cfg.outputs.configured }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read Firebase web config
+        id: cfg
+        env:
+          FIREBASE_WEB_CONFIG: ${{ secrets.FIREBASE_WEB_CONFIG }}
+        run: |
+          if [ -z "$FIREBASE_WEB_CONFIG" ]; then
+            echo "::warning::FIREBASE_WEB_CONFIG secret not set - skipping web build."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Accepts the JS snippet from the Firebase console or plain JSON:
+          # pulls out  key: "value"  pairs and maps them to --dart-define flags.
+          python3 - <<'PY'
+          import os, re
+          cfg = dict(re.findall(r'["\']?(\w+)["\']?\s*:\s*["\']([^"\']*)["\']',
+                                os.environ["FIREBASE_WEB_CONFIG"]))
+          names = {"apiKey": "FB_API_KEY", "appId": "FB_APP_ID",
+                   "messagingSenderId": "FB_MESSAGING_SENDER_ID",
+                   "projectId": "FB_PROJECT_ID", "authDomain": "FB_AUTH_DOMAIN",
+                   "databaseURL": "FB_DATABASE_URL",
+                   "storageBucket": "FB_STORAGE_BUCKET"}
+          missing = [k for k in ("apiKey", "appId") if not cfg.get(k)]
+          if missing:
+              raise SystemExit(f"FIREBASE_WEB_CONFIG is missing {missing}")
+          with open("/tmp/defines.txt", "w") as f:
+              for k, d in names.items():
+                  if cfg.get(k):
+                      f.write(f"--dart-define={d}={cfg[k]}\n")
+          print("Using keys:", sorted(k for k in names if cfg.get(k)))
+          PY
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Flutter (pinned)
+        if: steps.cfg.outputs.configured == 'true'
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.5'
+          channel: stable
+          cache: false
+
+      - name: Generate web scaffold
+        if: steps.cfg.outputs.configured == 'true'
+        run: |
+          flutter create --platforms=web --org com.pawan --project-name stockanalysis .
+          sed -i 's#<title>.*</title>#<title>Nifty Stock Screener</title>#' web/index.html
+          sed -i 's#"name": "[^"]*"#"name": "Nifty Stock Screener"#; s#"short_name": "[^"]*"#"short_name": "Stocks"#' web/manifest.json
+
+      - name: Flutter pub get
+        if: steps.cfg.outputs.configured == 'true'
+        run: flutter pub get
+
+      - name: Build web
+        if: steps.cfg.outputs.configured == 'true'
+        run: |
+          flutter build web --release --base-href /${{ github.event.repository.name }}/ \
+            $(cat /tmp/defines.txt | tr '\n' ' ')
+
+      - name: Upload Pages artifact
+        if: steps.cfg.outputs.configured == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/build/web
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
